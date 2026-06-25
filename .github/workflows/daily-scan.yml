@@ -1,0 +1,44 @@
+﻿name: Daily Competitor Scan
+
+on:
+  schedule:
+    - cron: '0 21 * * *'  # UTC 21:00 = JST 6:00
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r packages/scraper/requirements.txt
+          pip install -r packages/analyzer/requirements.txt
+          playwright install chromium
+
+      - name: Run scan
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          python packages/scraper/src/main.py
+
+      - name: Notify on failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{"text":":warning: Competitor Monitor daily scan failed. Check GitHub Actions logs."}' \
+            $SLACK_WEBHOOK_URL
