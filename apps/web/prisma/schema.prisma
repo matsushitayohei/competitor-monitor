@@ -1,0 +1,86 @@
+﻿generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("POSTGRES_PRISMA_URL")
+  directUrl = env("POSTGRES_URL_NON_POOLING")
+}
+
+model Service {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  displayName String
+  baseUrl     String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+  pages       MonitoredPage[]
+}
+
+model MonitoredPage {
+  id            String   @id @default(cuid())
+  serviceId     String
+  url           String
+  pageType      String
+  device        String   @default("pc")
+  isActive      Boolean  @default(true)
+  lastScannedAt DateTime?
+  lastStatus    Int?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime?
+  service       Service    @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  snapshots     Snapshot[]
+  changes       Change[]
+}
+
+model Snapshot {
+  id             String   @id @default(cuid())
+  pageId         String
+  screenshotPath String?
+  domHash        String?
+  domStructure   String?  @db.Text
+  capturedAt     DateTime @default(now())
+  page           MonitoredPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+}
+
+model Change {
+  id                   String   @id @default(cuid())
+  pageId               String
+  serviceName          String
+  pageType             String
+  category             String?
+  summary              String?  @db.Text
+  diffText             String?  @db.Text
+  beforeScreenshotPath String?
+  afterScreenshotPath  String?
+  visualDiffPath       String?
+  detectedAt           DateTime @default(now())
+  isReviewed           Boolean  @default(false)
+  page                 MonitoredPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  advice               Advice?
+}
+
+model Advice {
+  id             String   @id @default(cuid())
+  changeId       String   @unique
+  summary        String?  @db.Text
+  intent         String?  @db.Text
+  proposal       String?  @db.Text
+  priority       String?
+  expectedEffect String?  @db.Text
+  risks          String?  @db.Text
+  rawResponse    Json?
+  createdAt      DateTime @default(now())
+  change         Change @relation(fields: [changeId], references: [id], onDelete: Cascade)
+}
+
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String?
+  updatedAt DateTime @updatedAt
+}

@@ -4,16 +4,17 @@
   "description": "MCP Server for Competitor Monitor - provides competitor UI/UX change data to Kiro",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "prisma generate && tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "@supabase/supabase-js": "^2.45.0",
+    "@prisma/client": "^5.20.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "prisma": "^5.20.0",
     "typescript": "^5.5.0",
     "ts-node": "^10.9.0",
     "@types/node": "^22.0.0"
