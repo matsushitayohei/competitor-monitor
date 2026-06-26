@@ -1,6 +1,8 @@
 ﻿import { prisma } from "@/lib/prisma";
 import { Sidebar } from "@/components/sidebar";
 
+export const dynamic = 'force-dynamic';
+
 export default async function SettingsPage() {
   const settings = await prisma.setting.findMany();
   const settingsMap = Object.fromEntries(settings.map(s => [s.key, s.value]));

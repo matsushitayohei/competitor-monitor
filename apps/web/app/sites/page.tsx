@@ -3,6 +3,8 @@ import { Sidebar } from "@/components/sidebar";
 import { ServiceCardList } from "@/components/service-card-list";
 import { ToastProvider } from "@/components/toast";
 
+export const dynamic = 'force-dynamic';
+
 export default async function SitesPage() {
   const services = await prisma.service.findMany({
     where: { deletedAt: null },

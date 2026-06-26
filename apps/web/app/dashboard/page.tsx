@@ -1,5 +1,7 @@
 ﻿import { prisma } from "@/lib/prisma";
 
+export const dynamic = 'force-dynamic';
+
 export default async function DashboardPage() {
   const totalChanges = await prisma.change.count();
   const recentChanges = await prisma.change.findMany({

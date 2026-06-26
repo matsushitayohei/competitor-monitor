@@ -1,6 +1,8 @@
 ﻿import { prisma } from "@/lib/prisma";
 import { Sidebar } from "@/components/sidebar";
 
+export const dynamic = 'force-dynamic';
+
 export default async function ChangesPage() {
   const changes = await prisma.change.findMany({
     orderBy: { detectedAt: "desc" },
