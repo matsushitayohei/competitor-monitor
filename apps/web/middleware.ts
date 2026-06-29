@@ -1,5 +1,6 @@
-﻿export { auth as middleware } from "@/lib/auth";
+﻿// Authentication middleware temporarily disabled for initial deployment
+// export { auth as middleware } from "@/lib/auth";
 
-export const config = {
-  matcher: ["/((?!login|api/auth|_next/static|_next/image|favicon.ico).*)"],
-};
+// export const config = {
+//   matcher: ["/((?!login|api/auth|_next/static|_next/image|favicon.ico).*)"],
+// };
