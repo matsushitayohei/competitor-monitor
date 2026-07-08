@@ -65,6 +65,32 @@ export async function POST(
       );
     }
 
+    // "both" の場合はPC・SPの2レコードを作成
+    if (data.device === "both") {
+      const pages = await prisma.$transaction([
+        prisma.monitoredPage.create({
+          data: {
+            serviceId: id,
+            url: data.url,
+            pageType: data.pageType,
+            device: "pc",
+            isActive: data.isActive ?? true,
+          },
+        }),
+        prisma.monitoredPage.create({
+          data: {
+            serviceId: id,
+            url: data.url,
+            pageType: data.pageType,
+            device: "sp",
+            isActive: data.isActive ?? true,
+          },
+        }),
+      ]);
+
+      return NextResponse.json({ pages }, { status: 201 });
+    }
+
     const page = await prisma.monitoredPage.create({
       data: {
         serviceId: id,

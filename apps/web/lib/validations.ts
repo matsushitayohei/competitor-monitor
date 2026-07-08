@@ -74,7 +74,7 @@ export function validatePageInput(data: {
   if (!partial || data.pageType !== undefined) {
     if (!data.pageType) {
       fields.pageType = 'ページ種別を選択してください';
-    } else if (!['listing', 'detail'].includes(data.pageType)) {
+    } else if (!['listing', 'detail', 'search'].includes(data.pageType)) {
       fields.pageType = 'ページ種別を選択してください';
     }
   }
@@ -83,7 +83,7 @@ export function validatePageInput(data: {
   if (!partial || data.device !== undefined) {
     if (!data.device) {
       fields.device = 'デバイスを選択してください';
-    } else if (!['pc', 'sp'].includes(data.device)) {
+    } else if (!['pc', 'sp', 'both'].includes(data.device)) {
       fields.device = 'デバイスを選択してください';
     }
   }

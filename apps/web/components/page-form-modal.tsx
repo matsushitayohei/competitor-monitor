@@ -22,7 +22,7 @@ interface PageFormModalProps {
 export function PageFormModal({ isOpen, onClose, onSuccess, serviceId, page }: PageFormModalProps) {
   const [url, setUrl] = useState("");
   const [pageType, setPageType] = useState("listing");
-  const [device, setDevice] = useState("pc");
+  const [device, setDevice] = useState("both");
   const [isActive, setIsActive] = useState(true);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -134,6 +134,7 @@ export function PageFormModal({ isOpen, onClose, onSuccess, serviceId, page }: P
             >
               <option value="listing">物件一覧</option>
               <option value="detail">物件詳細</option>
+              <option value="search">条件設定</option>
             </select>
             {errors.pageType && <p className="mt-1 text-xs text-red-600">{errors.pageType}</p>}
           </div>
@@ -145,6 +146,7 @@ export function PageFormModal({ isOpen, onClose, onSuccess, serviceId, page }: P
               onChange={(e) => { setDevice(e.target.value); clearFieldError("device"); }}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
+              <option value="both">PC + SP（両方）</option>
               <option value="pc">PC (1280px)</option>
               <option value="sp">SP (375px)</option>
             </select>
