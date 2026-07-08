@@ -54,7 +54,14 @@ export function ServicePagesSection({ serviceId, pages, onRefresh }: ServicePage
     onRefresh();
   };
 
-  const formatPageType = (type: string) => type === "listing" ? "物件一覧" : "物件詳細";
+  const formatPageType = (type: string) => {
+    switch (type) {
+      case "listing": return "物件一覧";
+      case "detail": return "物件詳細";
+      case "search": return "条件設定";
+      default: return type;
+    }
+  };
   const formatDevice = (device: string) => device === "pc" ? "PC" : "SP";
   const formatDate = (date: string | null) => {
     if (!date) return "未スキャン";
