@@ -116,7 +116,7 @@ export function ServiceCardList({ services }: ServiceCardListProps) {
               className="text-sm text-gray-600 cursor-pointer hover:text-blue-600"
               onClick={() => toggleExpand(service.id)}
             >
-              {new Set(service.pages.map((p) => `${p.url}::${p.pageType}`)).size} ページ監視中
+              {new Set((service.pages || []).map((p) => `${p.url}::${p.pageType}`)).size} ページ監視中
             </p>
 
             {expandedServiceId === service.id && (

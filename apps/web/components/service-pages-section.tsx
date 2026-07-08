@@ -29,7 +29,7 @@ export function ServicePagesSection({ serviceId, pages, onRefresh }: ServicePage
   const [isDeleting, setIsDeleting] = useState(false);
 
   // PC/SPペアをグループ化（同じURL + pageType でまとめる）
-  const groupedPages = pages.reduce<{ key: string; pc?: MonitoredPage; sp?: MonitoredPage }[]>((acc, page) => {
+  const groupedPages = pages.reduce<{ key: string; pc?: MonitoredPage; sp?: MonitoredPage; other?: MonitoredPage }[]>((acc, page) => {
     const key = `${page.url}::${page.pageType}`;
     let group = acc.find((g) => g.key === key);
     if (!group) {
@@ -38,6 +38,7 @@ export function ServicePagesSection({ serviceId, pages, onRefresh }: ServicePage
     }
     if (page.device === "pc") group.pc = page;
     else if (page.device === "sp") group.sp = page;
+    else group.other = page;
     return acc;
   }, []);
 
@@ -46,8 +47,8 @@ export function ServicePagesSection({ serviceId, pages, onRefresh }: ServicePage
     setIsDeleting(true);
     try {
       // PC/SPペアの場合、同じURL+pageTypeの両方を削除
-      const group = groupedPages.find((g) => g.pc?.id === deletingPage.id || g.sp?.id === deletingPage.id);
-      const idsToDelete = [group?.pc?.id, group?.sp?.id].filter(Boolean) as string[];
+      const group = groupedPages.find((g) => g.pc?.id === deletingPage.id || g.sp?.id === deletingPage.id || g.other?.id === deletingPage.id);
+      const idsToDelete = [group?.pc?.id, group?.sp?.id, group?.other?.id].filter(Boolean) as string[];
 
       for (const id of idsToDelete) {
         const res = await fetch(`/api/pages/${id}`, { method: "DELETE" });
@@ -103,8 +104,9 @@ export function ServicePagesSection({ serviceId, pages, onRefresh }: ServicePage
       ) : (
         <div className="space-y-2">
           {groupedPages.map((group) => {
-            const representative = group.pc || group.sp!;
-            const devices = [group.pc && "PC", group.sp && "SP"].filter(Boolean).join(" / ");
+            const representative = group.pc || group.sp || group.other;
+            if (!representative) return null;
+            const devices = [group.pc && "PC", group.sp && "SP"].filter(Boolean).join(" / ") || representative.device;
             return (
               <div key={group.key} className="flex items-center justify-between p-3 bg-gray-50 rounded text-sm">
                 <div className="flex-1 min-w-0">
