@@ -1,5 +1,6 @@
 ﻿"""DOM diff detection module."""
 
+import difflib
 from bs4 import BeautifulSoup
 from typing import Optional
 
@@ -14,43 +15,79 @@ EXCLUDE_SELECTORS = [
     '.property-address',
     '.bukken-price',
     '.bukken-name',
+    # SUUMO specific
+    '.cassetteitem_price',
+    '.cassetteitem_detail-col3',
+    # athome specific
+    '.price',
+    '.detail-price',
     # Dynamic elements
     '.ad-banner',
     '.ranking-position',
     'time',
     '[datetime]',
+    # Cookie banners, popups
+    '.cookie-consent',
+    '.modal-overlay',
+    '#cookie-banner',
 ]
 
 
 def extract_structure(html: str, exclude_selectors: Optional[list] = None) -> str:
     """Extract DOM structure, removing property-specific content."""
     soup = BeautifulSoup(html, 'lxml')
-    
+
+    # Remove script and style elements entirely
+    for tag in soup.find_all(['script', 'style', 'noscript', 'iframe']):
+        tag.decompose()
+
     selectors = exclude_selectors or EXCLUDE_SELECTORS
     for selector in selectors:
-        for el in soup.select(selector):
-            el.decompose()
-    
+        try:
+            for el in soup.select(selector):
+                el.decompose()
+        except Exception:
+            pass  # Skip invalid selectors
+
     # Remove text content, keep structure only
     for text_node in soup.find_all(string=True):
-        # Keep class names and attributes, remove actual text
-        if text_node.parent.name not in ['script', 'style']:
+        if text_node.parent and text_node.parent.name not in ['script', 'style']:
             text_node.replace_with('[TEXT]')
-    
+
     return str(soup)
 
 
-def compute_diff(old_html: str, new_html: str) -> Optional[dict]:
+def compute_diff(old_structure: str, new_structure: str) -> Optional[dict]:
     """Compute structural diff between two HTML snapshots."""
-    old_structure = extract_structure(old_html)
-    new_structure = extract_structure(new_html)
-    
     if old_structure == new_structure:
         return None
-    
-    # TODO: Implement detailed diff using difflib
+
+    # Split into lines for difflib comparison
+    old_lines = old_structure.splitlines()
+    new_lines = new_structure.splitlines()
+
+    # Generate unified diff
+    diff_lines = list(difflib.unified_diff(
+        old_lines, new_lines,
+        fromfile="before", tofile="after",
+        lineterm="",
+        n=3,  # context lines
+    ))
+
+    if not diff_lines:
+        return None
+
+    diff_text = "\n".join(diff_lines[:500])  # Limit to first 500 lines
+
+    # Count changes
+    additions = sum(1 for l in diff_lines if l.startswith('+') and not l.startswith('+++'))
+    deletions = sum(1 for l in diff_lines if l.startswith('-') and not l.startswith('---'))
+
     return {
         "has_changes": True,
+        "diff_text": diff_text,
+        "additions": additions,
+        "deletions": deletions,
         "old_length": len(old_structure),
         "new_length": len(new_structure),
     }
