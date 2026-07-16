@@ -44,6 +44,8 @@ model Snapshot {
   domStructure   String?  @db.Text
   capturedAt     DateTime @default(now())
   page           MonitoredPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@index([pageId, capturedAt(sort: Desc)])
 }
 
 model Change {
@@ -61,6 +63,11 @@ model Change {
   isReviewed           Boolean  @default(false)
   page                 MonitoredPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
   advice               Advice?
+
+  @@index([detectedAt(sort: Desc)])
+  @@index([serviceName])
+  @@index([category])
+  @@index([isReviewed])
 }
 
 model Advice {
@@ -82,4 +89,42 @@ model Setting {
   key       String   @unique
   value     String?
   updatedAt DateTime @updatedAt
+}
+
+model PressSource {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  url       String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+  articles  PressArticle[]
+
+  @@map("press_source")
+}
+
+model PressArticle {
+  id                String    @id @default(cuid())
+  sourceId          String
+  title             String    @db.VarChar(512)
+  articleUrl        String    @db.VarChar(2048)
+  publishedAt       DateTime?
+  bodyText          String?   @db.Text
+  classification    String?
+  relevanceCategory String?
+  summary           String?   @db.VarChar(5000)
+  needsManualReview Boolean   @default(false)
+  scrapedAt         DateTime  @default(now())
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+  source            PressSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceId, articleUrl])
+  @@index([publishedAt(sort: Desc)])
+  @@index([sourceId])
+  @@index([classification])
+  @@index([relevanceCategory])
+  @@map("press_article")
 }

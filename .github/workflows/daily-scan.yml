@@ -23,13 +23,26 @@ jobs:
         run: |
           pip install -r packages/scraper/requirements.txt
           pip install -r packages/analyzer/requirements.txt
-          playwright install chromium
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ hashFiles('packages/scraper/requirements.txt') }}
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: playwright install chromium
+
+      - name: Install Playwright deps
+        run: playwright install-deps chromium
 
       - name: Run scan
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
         run: |
           python packages/scraper/src/main.py
 
@@ -40,4 +53,20 @@ jobs:
         run: |
           curl -X POST -H 'Content-type: application/json' \
             --data '{"text":":warning: Competitor Monitor daily scan failed. Check GitHub Actions logs."}' \
+            $SLACK_WEBHOOK_URL
+
+      - name: Run press release scan
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          python packages/scraper/src/press_main.py
+
+      - name: Notify press scan failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{"text":":warning: Press Release Monitor scan failed. Check GitHub Actions logs."}' \
             $SLACK_WEBHOOK_URL
