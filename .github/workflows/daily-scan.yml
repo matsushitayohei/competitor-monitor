@@ -2,7 +2,7 @@
 
 on:
   schedule:
-    - cron: '0 21 * * *'  # UTC 21:00 = JST 6:00
+    - cron: '0 1 * * *'  # UTC 1:00 = JST 10:00
   workflow_dispatch:  # Manual trigger
 
 jobs:
