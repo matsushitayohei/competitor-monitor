@@ -1,29 +1,21 @@
-﻿"""AI advice generation module using Amazon Bedrock (Claude)."""
+﻿"""Rule-based advice stub module.
 
-from bedrock_client import invoke_claude
+In this architecture, detailed AI advice is generated on-demand via MCP + Kiro,
+not during the automated scan. This module provides a lightweight placeholder
+that marks changes as "pending analysis" for later Kiro-driven review.
+"""
+
+import json
 
 
-SYSTEM_PROMPT = """You are a senior product manager at LIFULL HOME'S, a major Japanese real estate portal.
-You analyze competitor changes and provide actionable advice. Always respond in valid JSON only."""
-
-ADVICE_PROMPT = """A competitor has made the following UI/UX change:
-
-Competitor: {service_name}
-Page Type: {page_type}
-Change Category: {category}
-Change Summary: {diff_summary}
-
-LIFULL HOME'Sがこの変更を参考にすべきかアドバイスしてください。
-
-以下のJSON形式で回答してください:
-{{
-  "summary": "<何が変わったか1-2文>",
-  "intent": "<なぜこの変更をしたと考えられるか>",
-  "proposal": "<LIFULL HOME'Sがどう取り入れるべきか>",
-  "priority": "<high/medium/low>",
-  "expected_effect": "<導入した場合の期待効果>",
-  "risks": "<リスクや懸念点>"
-}}"""
+# Priority heuristics based on category and change scale
+PRIORITY_RULES = {
+    "CRO": "high",      # CRO changes directly impact conversion
+    "AD_PRODUCT": "medium",  # Ad changes are revenue-related
+    "SEO": "medium",    # SEO changes affect organic traffic
+    "AI": "high",       # AI features represent major competitive moves
+    "OTHER": "low",     # Design/branding changes are lower priority
+}
 
 
 def generate_advice(
@@ -32,21 +24,23 @@ def generate_advice(
     category: str,
     diff_summary: str,
 ) -> str:
-    """Generate AI advice for a detected change.
+    """Generate a placeholder advice record for later Kiro analysis.
+
+    The actual detailed analysis is done on-demand via MCP when a user
+    asks Kiro to analyze a specific change.
 
     Returns:
-        JSON string with advice fields.
+        JSON string with basic advice fields.
     """
-    prompt = ADVICE_PROMPT.format(
-        service_name=service_name,
-        page_type=page_type,
-        category=category,
-        diff_summary=diff_summary,
-    )
-    return invoke_claude(
-        prompt=prompt,
-        system=SYSTEM_PROMPT,
-        max_tokens=1024,
-        temperature=0.4,
-        json_mode=True,
-    )
+    priority = PRIORITY_RULES.get(category, "low")
+
+    result = {
+        "summary": diff_summary[:200] if diff_summary else "変更を検知しました",
+        "intent": "MCP経由でKiroに分析を依頼してください",
+        "proposal": "MCP経由でKiroに分析を依頼してください",
+        "priority": priority,
+        "expected_effect": None,
+        "risks": None,
+    }
+
+    return json.dumps(result, ensure_ascii=False)

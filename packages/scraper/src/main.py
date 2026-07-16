@@ -151,48 +151,44 @@ async def scan_page(page_info: dict) -> dict:
 
         diff_text = diff_result.get("diff_text", "")
 
-        # 7. Classify and summarize using AI (if Bedrock is configured)
+        # 7. Classify and summarize using rule-based analysis
         category = None
         summary = None
         advice_data = None
 
-        if os.environ.get("AWS_REGION") or os.environ.get("AWS_ACCESS_KEY_ID"):
+        try:
+            from classify import classify_change
+            from summarize import summarize_change
+            from advice import generate_advice
+
+            # Summarize
+            summary = summarize_change(diff_text[:8000])
+            print(f"    Summary: {summary[:100]}...")
+
+            # Classify
+            classify_result = classify_change(diff_text[:8000])
             try:
-                from classify import classify_change
-                from summarize import summarize_change
-                from advice import generate_advice
-
-                # Summarize
-                summary = summarize_change(diff_text[:4000])
-                print(f"    Summary: {summary[:100]}...")
-
-                # Classify
-                classify_result = classify_change(diff_text[:4000])
-                try:
-                    classify_json = json.loads(classify_result)
-                    category = classify_json.get("category", "OTHER")
-                except (json.JSONDecodeError, TypeError):
-                    category = "OTHER"
-
-                # Generate advice
-                advice_response = generate_advice(
-                    service_name=service_name,
-                    page_type=page_type,
-                    category=category or "OTHER",
-                    diff_summary=summary or diff_text[:2000],
-                )
-                try:
-                    advice_data = json.loads(advice_response)
-                except (json.JSONDecodeError, TypeError):
-                    advice_data = {"proposal": advice_response, "priority": "medium"}
-
-            except Exception as e:
-                print(f"    AI analysis error: {e}")
+                classify_json = json.loads(classify_result)
+                category = classify_json.get("category", "OTHER")
+            except (json.JSONDecodeError, TypeError):
                 category = "OTHER"
-                summary = "AI分析中にエラーが発生しました"
-        else:
-            summary = "DOM構造に変更を検知しました"
+
+            # Generate placeholder advice (detailed analysis via MCP + Kiro)
+            advice_response = generate_advice(
+                service_name=service_name,
+                page_type=page_type,
+                category=category or "OTHER",
+                diff_summary=summary or diff_text[:2000],
+            )
+            try:
+                advice_data = json.loads(advice_response)
+            except (json.JSONDecodeError, TypeError):
+                advice_data = {"proposal": "MCP経由でKiroに分析を依頼してください", "priority": "medium"}
+
+        except Exception as e:
+            print(f"    Analysis error: {e}")
             category = "OTHER"
+            summary = "DOM構造に変更を検知しました"
 
         # 8. Save change to DB
         change_id = save_change(
