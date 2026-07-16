@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "競合変更を自動分析",
+  "description": "Kiroセッション開始時に、MCP Server経由で未分析の競合変更を取得し、DOM差分を読んでHOME'Sへのアドバイスを自動生成してDBに保存します。",
+  "version": "1",
+  "when": {
+    "type": "promptSubmit"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "competitor-monitor MCPサーバーの get_unanalyzed_changes ツールを呼び出して、未分析の競合変更があるか確認してください。変更がある場合は、各変更について get_change_diff で差分を取得し、以下の観点で分析して save_kiro_advice で保存してください:\n- summary: 何が変わったか(1-2文)\n- intent: なぜこの変更をしたと考えられるか\n- proposal: LIFULL HOME'Sがどう取り入れるべきか\n- priority: high/medium/low\n- expected_effect: 導入した場合の期待効果\n- risks: リスクや懸念点\n変更がない場合は何もせず続行してください。"
+  }
+}

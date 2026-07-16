@@ -54,3 +54,19 @@ jobs:
           curl -X POST -H 'Content-type: application/json' \
             --data '{"text":":warning: Competitor Monitor daily scan failed. Check GitHub Actions logs."}' \
             $SLACK_WEBHOOK_URL
+
+      - name: Run press release scan
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          python packages/scraper/src/press_main.py
+
+      - name: Notify press scan failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{"text":":warning: Press Release Monitor scan failed. Check GitHub Actions logs."}' \
+            $SLACK_WEBHOOK_URL

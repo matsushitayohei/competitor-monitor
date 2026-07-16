@@ -6,6 +6,8 @@ const navItems = [
   { href: "/sites", label: "対象サイト", icon: "🌐" },
   { href: "/changes", label: "変更履歴", icon: "🔄" },
   { href: "/advice", label: "AIアドバイス", icon: "💡" },
+  { href: "/press", label: "ソース管理", icon: "📰" },
+  { href: "/press/articles", label: "記事履歴", icon: "📄" },
   { href: "/settings", label: "設定", icon: "⚙️" },
 ];
 
