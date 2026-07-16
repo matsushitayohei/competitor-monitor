@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/prisma";
-import { Sidebar } from "@/components/sidebar";
 import { PressSourceList } from "@/components/press-source-list";
 import { ToastProvider } from "@/components/toast";
 
@@ -12,13 +11,8 @@ export default async function PressSourcesPage() {
   });
 
   return (
-    <div className="flex min-h-screen">
-      <Sidebar />
-      <main className="flex-1 p-8">
-        <ToastProvider>
-          <PressSourceList sources={JSON.parse(JSON.stringify(sources))} />
-        </ToastProvider>
-      </main>
-    </div>
+    <ToastProvider>
+      <PressSourceList sources={JSON.parse(JSON.stringify(sources))} />
+    </ToastProvider>
   );
 }

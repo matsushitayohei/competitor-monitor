@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Sidebar } from "@/components/sidebar";
 import { truncateTitle } from "@/lib/press-utils";
 
 interface PressSource {
@@ -169,13 +168,11 @@ export default function PressArticlesPage() {
   }
 
   return (
-    <div className="flex min-h-screen">
-      <Sidebar />
-      <main className="flex-1 p-8">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">プレスリリース記事履歴</h1>
-          <span className="text-sm text-gray-500">{pagination.totalCount}件</span>
-        </div>
+    <>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">プレスリリース記事履歴</h1>
+        <span className="text-sm text-gray-500">{pagination.totalCount}件</span>
+      </div>
 
         {/* Filters */}
         <div className="flex flex-wrap gap-4 mb-6">
@@ -314,7 +311,6 @@ export default function PressArticlesPage() {
             )}
           </>
         )}
-      </main>
-    </div>
+    </>
   );
 }
