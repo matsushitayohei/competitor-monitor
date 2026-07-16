@@ -1,47 +1,29 @@
-﻿"""AI advice generation module using Google Gemini."""
+﻿"""AI advice generation module using Amazon Bedrock (Claude)."""
 
-import google.generativeai as genai
-import os
+from bedrock_client import invoke_claude
 
 
-ADVICE_PROMPT = """
-You are a senior product manager at LIFULL HOME'S, a major Japanese real estate portal.
-A competitor has made the following UI/UX change:
+SYSTEM_PROMPT = """You are a senior product manager at LIFULL HOME'S, a major Japanese real estate portal.
+You analyze competitor changes and provide actionable advice. Always respond in valid JSON only."""
+
+ADVICE_PROMPT = """A competitor has made the following UI/UX change:
 
 Competitor: {service_name}
 Page Type: {page_type}
 Change Category: {category}
 Change Summary: {diff_summary}
 
-Please provide advice in Japanese on whether LIFULL HOME'S should adopt a similar change.
+LIFULL HOME'Sがこの変更を参考にすべきかアドバイスしてください。
 
-Respond in JSON format:
+以下のJSON形式で回答してください:
 {{
-  "summary": "<what changed in 1-2 sentences>",
-  "intent": "<why they likely made this change>",
-  "proposal": "<how LIFULL HOME'S could adopt this>",
+  "summary": "<何が変わったか1-2文>",
+  "intent": "<なぜこの変更をしたと考えられるか>",
+  "proposal": "<LIFULL HOME'Sがどう取り入れるべきか>",
   "priority": "<high/medium/low>",
-  "expected_effect": "<expected impact if adopted>",
-  "risks": "<potential risks or concerns>"
-}}
-"""
-
-_model = None
-
-
-def _get_model():
-    """Get or initialize the Gemini model (singleton)."""
-    global _model
-    if _model is None:
-        genai.configure(api_key=os.environ["GOOGLE_AI_API_KEY"])
-        _model = genai.GenerativeModel(
-            "gemini-1.5-pro",
-            generation_config=genai.GenerationConfig(
-                response_mime_type="application/json",
-                temperature=0.4,
-            ),
-        )
-    return _model
+  "expected_effect": "<導入した場合の期待効果>",
+  "risks": "<リスクや懸念点>"
+}}"""
 
 
 def generate_advice(
@@ -50,15 +32,21 @@ def generate_advice(
     category: str,
     diff_summary: str,
 ) -> str:
-    """Generate AI advice for a detected change."""
-    model = _get_model()
-    
+    """Generate AI advice for a detected change.
+
+    Returns:
+        JSON string with advice fields.
+    """
     prompt = ADVICE_PROMPT.format(
         service_name=service_name,
         page_type=page_type,
         category=category,
         diff_summary=diff_summary,
     )
-    
-    response = model.generate_content(prompt)
-    return response.text
+    return invoke_claude(
+        prompt=prompt,
+        system=SYSTEM_PROMPT,
+        max_tokens=1024,
+        temperature=0.4,
+        json_mode=True,
+    )

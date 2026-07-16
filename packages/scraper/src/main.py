@@ -151,12 +151,12 @@ async def scan_page(page_info: dict) -> dict:
 
         diff_text = diff_result.get("diff_text", "")
 
-        # 7. Classify and summarize using AI (if API key available)
+        # 7. Classify and summarize using AI (if Bedrock is configured)
         category = None
         summary = None
         advice_data = None
 
-        if os.environ.get("GOOGLE_AI_API_KEY"):
+        if os.environ.get("AWS_REGION") or os.environ.get("AWS_ACCESS_KEY_ID"):
             try:
                 from classify import classify_change
                 from summarize import summarize_change
