@@ -26,6 +26,23 @@ Respond in JSON format:
 }}
 """
 
+_model = None
+
+
+def _get_model():
+    """Get or initialize the Gemini model (singleton)."""
+    global _model
+    if _model is None:
+        genai.configure(api_key=os.environ["GOOGLE_AI_API_KEY"])
+        _model = genai.GenerativeModel(
+            "gemini-1.5-pro",
+            generation_config=genai.GenerationConfig(
+                response_mime_type="application/json",
+                temperature=0.4,
+            ),
+        )
+    return _model
+
 
 def generate_advice(
     service_name: str,
@@ -34,8 +51,7 @@ def generate_advice(
     diff_summary: str,
 ) -> str:
     """Generate AI advice for a detected change."""
-    genai.configure(api_key=os.environ["GOOGLE_AI_API_KEY"])
-    model = genai.GenerativeModel("gemini-1.5-pro")
+    model = _get_model()
     
     prompt = ADVICE_PROMPT.format(
         service_name=service_name,

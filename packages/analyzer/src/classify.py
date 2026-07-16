@@ -22,10 +22,26 @@ Respond in JSON format:
 {{"category": "<category>", "confidence": <0-1>, "reason": "<brief reason>"}}
 """
 
+_model = None
 
-def classify_change(diff_text: str) -> dict:
+
+def _get_model():
+    """Get or initialize the Gemini model (singleton)."""
+    global _model
+    if _model is None:
+        genai.configure(api_key=os.environ["GOOGLE_AI_API_KEY"])
+        _model = genai.GenerativeModel(
+            "gemini-1.5-pro",
+            generation_config=genai.GenerationConfig(
+                response_mime_type="application/json",
+                temperature=0.2,
+            ),
+        )
+    return _model
+
+
+def classify_change(diff_text: str) -> str:
     """Classify a DOM change using Gemini."""
-    genai.configure(api_key=os.environ["GOOGLE_AI_API_KEY"])
-    model = genai.GenerativeModel("gemini-1.5-pro")
+    model = _get_model()
     response = model.generate_content(CLASSIFY_PROMPT.format(diff_text=diff_text))
     return response.text

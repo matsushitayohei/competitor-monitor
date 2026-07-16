@@ -47,7 +47,7 @@ export default async function DashboardPage() {
               <li key={change.id} className="px-6 py-4 flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-900">
-                    {change.page.service.displayName} - {change.pageType === "listing" ? "一覧" : "詳細"}
+                    {change.page.service.displayName} - {change.pageType === "list" ? "一覧" : "詳細"}
                   </p>
                   <p className="text-sm text-gray-500">{change.summary || "分析中..."}</p>
                 </div>

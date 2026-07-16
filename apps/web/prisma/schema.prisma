@@ -44,6 +44,8 @@ model Snapshot {
   domStructure   String?  @db.Text
   capturedAt     DateTime @default(now())
   page           MonitoredPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@index([pageId, capturedAt(sort: Desc)])
 }
 
 model Change {
@@ -61,6 +63,11 @@ model Change {
   isReviewed           Boolean  @default(false)
   page                 MonitoredPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
   advice               Advice?
+
+  @@index([detectedAt(sort: Desc)])
+  @@index([serviceName])
+  @@index([category])
+  @@index([isReviewed])
 }
 
 model Advice {

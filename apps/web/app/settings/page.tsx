@@ -37,7 +37,7 @@ export default async function SettingsPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 データ保持期間
               </label>
-              <p className="text-sm text-gray-500">{settingsMap.retention_days || "30"} 日</p>
+              <p className="text-sm text-gray-500">無期限（全履歴を保持）</p>
             </div>
           </div>
           <p className="mt-6 text-xs text-gray-400">

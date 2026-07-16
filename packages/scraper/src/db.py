@@ -1,4 +1,4 @@
-"""Database access module for Neon PostgreSQL."""
+﻿"""Database access module for Neon PostgreSQL."""
 
 import os
 import json
@@ -7,14 +7,34 @@ from typing import Optional
 
 import psycopg2
 import psycopg2.extras
+import psycopg2.pool
+
+# Connection pool (min 1, max 5 connections)
+_pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
+
+
+def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
+    """Get or initialize the connection pool."""
+    global _pool
+    if _pool is None or _pool.closed:
+        url = os.environ.get("DATABASE_URL")
+        if not url:
+            raise RuntimeError("DATABASE_URL environment variable is not set")
+        _pool = psycopg2.pool.ThreadedConnectionPool(1, 5, url, sslmode="require")
+    return _pool
 
 
 def get_connection():
-    """Get a PostgreSQL connection using the DATABASE_URL environment variable."""
-    url = os.environ.get("DATABASE_URL")
-    if not url:
-        raise RuntimeError("DATABASE_URL environment variable is not set")
-    return psycopg2.connect(url, sslmode="require")
+    """Get a connection from the pool."""
+    return _get_pool().getconn()
+
+
+def release_connection(conn):
+    """Return a connection to the pool."""
+    try:
+        _get_pool().putconn(conn)
+    except Exception:
+        pass
 
 
 def get_active_pages() -> list[dict]:
@@ -41,7 +61,7 @@ def get_active_pages() -> list[dict]:
             """)
             return [dict(row) for row in cur.fetchall()]
     finally:
-        conn.close()
+        release_connection(conn)
 
 
 def get_latest_snapshot(page_id: str) -> Optional[dict]:
@@ -59,7 +79,7 @@ def get_latest_snapshot(page_id: str) -> Optional[dict]:
             row = cur.fetchone()
             return dict(row) if row else None
     finally:
-        conn.close()
+        release_connection(conn)
 
 
 def save_snapshot(page_id: str, dom_hash: str, dom_structure: str, screenshot_path: Optional[str] = None) -> str:
@@ -76,7 +96,7 @@ def save_snapshot(page_id: str, dom_hash: str, dom_structure: str, screenshot_pa
             conn.commit()
         return snapshot_id
     finally:
-        conn.close()
+        release_connection(conn)
 
 
 def save_change(page_id: str, service_name: str, page_type: str, category: Optional[str],
@@ -94,7 +114,7 @@ def save_change(page_id: str, service_name: str, page_type: str, category: Optio
             conn.commit()
         return change_id
     finally:
-        conn.close()
+        release_connection(conn)
 
 
 def save_advice(change_id: str, advice_data: dict) -> str:
@@ -121,7 +141,7 @@ def save_advice(change_id: str, advice_data: dict) -> str:
             conn.commit()
         return advice_id
     finally:
-        conn.close()
+        release_connection(conn)
 
 
 def update_page_scan_status(page_id: str, status: int):
@@ -136,4 +156,46 @@ def update_page_scan_status(page_id: str, status: int):
             """, (datetime.now(timezone.utc), status, datetime.now(timezone.utc), page_id))
             conn.commit()
     finally:
-        conn.close()
+        release_connection(conn)
+
+
+def update_page_url(page_id: str, new_url: str):
+    """Update the URL for a monitored page (used for URL fallback on 404)."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE "MonitoredPage"
+                SET url = %s, "updatedAt" = %s
+                WHERE id = %s
+            """, (new_url, datetime.now(timezone.utc), page_id))
+            conn.commit()
+    finally:
+        release_connection(conn)
+
+
+def get_list_page_for_service(service_id: str) -> Optional[dict]:
+    """Get the listing page URL for a service (used for URL fallback).
+
+    Finds an active listing page (pageType='list') belonging to the same service.
+    Returns the first available one for PC device, falling back to SP.
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, url, device, "pageType"
+                FROM "MonitoredPage"
+                WHERE "serviceId" = %s
+                  AND "pageType" = 'list'
+                  AND "isActive" = true
+                  AND "deletedAt" IS NULL
+                ORDER BY
+                    CASE WHEN device = 'pc' THEN 0 ELSE 1 END,
+                    "createdAt" ASC
+                LIMIT 1
+            """, (service_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+    finally:
+        release_connection(conn)

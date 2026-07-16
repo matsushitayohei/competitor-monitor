@@ -55,4 +55,4 @@ Next.js 14 App Router で管理画面を構築してください。
 1. GitHub Actions daily-scan ワークフロー完成
 2. MCP Server 実装・テスト
 3. 設定画面（Slack Webhook URL等）
-4. 古いスクリーンショットの自動削除（30日）
+4. ~~古いスクリーンショットの自動削除（30日）~~ → 無期限保持に方針変更
