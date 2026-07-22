@@ -187,6 +187,11 @@ async def scrape_press_source(page: Page, source: dict) -> list[dict]:
         if not article_url or not article_title:
             continue
 
+        # Filter out non-article pages (nav links, static pages, etc.)
+        if not parser._is_valid_article(article_title, article_url, source_url):
+            logger.debug(f"  Skipped non-article: {article_title[:40]}")
+            continue
+
         # Check for duplicates
         if article_exists(source_id, article_url):
             continue
@@ -273,9 +278,9 @@ async def run_press_scraper() -> dict:
                 "Upgrade-Insecure-Requests": "1",
             },
         )
-        page = await context.new_page()
-
+        # Create a fresh page per source to avoid cookie/session cross-contamination
         for source in sources:
+            page = await context.new_page()
             try:
                 new_articles = await scrape_press_source(page, source)
                 results["new_articles"] += len(new_articles)
@@ -294,6 +299,8 @@ async def run_press_scraper() -> dict:
                     "url": source["url"],
                     "error": str(e),
                 })
+            finally:
+                await page.close()
 
             # Inter-request delay between sources
             await asyncio.sleep(INTER_REQUEST_DELAY)
