@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-import cuid2
+from cuid2 import Cuid
 import psycopg2.extras
 
 from db import get_connection, release_connection
@@ -60,7 +60,7 @@ def save_press_article(data: dict) -> str:
     Returns:
         The generated article ID.
     """
-    article_id = cuid2.cuid()
+    article_id = Cuid().generate()
     now = datetime.now(timezone.utc)
     conn = get_connection()
     try:

@@ -84,8 +84,8 @@ def get_latest_snapshot(page_id: str) -> Optional[dict]:
 
 def save_snapshot(page_id: str, dom_hash: str, dom_structure: str, screenshot_path: Optional[str] = None) -> str:
     """Save a new snapshot and return its ID."""
-    import cuid2
-    snapshot_id = cuid2.cuid()
+    from cuid2 import Cuid
+    snapshot_id = Cuid().generate()
     conn = get_connection()
     try:
         with conn.cursor() as cur:
@@ -102,8 +102,8 @@ def save_snapshot(page_id: str, dom_hash: str, dom_structure: str, screenshot_pa
 def save_change(page_id: str, service_name: str, page_type: str, category: Optional[str],
                 summary: Optional[str], diff_text: Optional[str]) -> str:
     """Save a detected change and return its ID."""
-    import cuid2
-    change_id = cuid2.cuid()
+    from cuid2 import Cuid
+    change_id = Cuid().generate()
     conn = get_connection()
     try:
         with conn.cursor() as cur:
@@ -119,8 +119,8 @@ def save_change(page_id: str, service_name: str, page_type: str, category: Optio
 
 def save_advice(change_id: str, advice_data: dict) -> str:
     """Save AI-generated advice for a change."""
-    import cuid2
-    advice_id = cuid2.cuid()
+    from cuid2 import Cuid
+    advice_id = Cuid().generate()
     conn = get_connection()
     try:
         with conn.cursor() as cur:

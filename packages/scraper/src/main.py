@@ -248,12 +248,22 @@ async def capture_page_with_html(url: str, viewport_width: int, max_retries: int
     """Capture page HTML content and screenshot with retry on transient failures."""
     from playwright.async_api import async_playwright
 
+    # Use a realistic User-Agent to avoid bot detection (e.g. at home returns HTTP 405)
+    user_agent = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/126.0.0.0 Safari/537.36"
+    )
+
     last_error = None
     for attempt in range(max_retries + 1):
         try:
             async with async_playwright() as p:
                 browser = await p.chromium.launch()
-                page = await browser.new_page(viewport={"width": viewport_width, "height": 800})
+                page = await browser.new_page(
+                    viewport={"width": viewport_width, "height": 800},
+                    user_agent=user_agent,
+                )
 
                 response = await page.goto(url, wait_until="networkidle", timeout=30000)
                 http_status = response.status if response else 0
@@ -304,6 +314,14 @@ async def main():
 
     print(f"\n[{datetime.now().isoformat()}] Scan complete.")
     print(f"  Total: {total}, Changes: {changes}, First scans: {first_scans}, Errors: {errors}")
+
+    # Fail the job if majority of pages errored (so GitHub Actions shows failure)
+    if errors > 0 and errors >= total * 0.5:
+        print(f"\n  ERROR: {errors}/{total} pages failed. Exiting with error.")
+        # Send notification before exiting
+        if os.environ.get("SLACK_WEBHOOK_URL"):
+            await send_slack_notification(results)
+        sys.exit(1)
 
     # Send Slack notification if changes or URL issues detected
     has_notifications = (

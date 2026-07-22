@@ -179,7 +179,13 @@ async def run_press_scraper() -> dict:
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
+        # Use realistic User-Agent to avoid bot detection (e.g. athome returns HTTP 405)
+        user_agent = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/126.0.0.0 Safari/537.36"
+        )
+        page = await browser.new_page(user_agent=user_agent)
 
         for source in sources:
             try:

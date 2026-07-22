@@ -29,6 +29,7 @@ SERVICE_DETAIL_LINK_SELECTORS = {
         '.p-property a[href]',
     ],
     "canary": [
+        'a[href*="/rooms/"]',
         'a[href*="/room/"]',
         'a[href*="/property/"]',
         '.room-card a[href]',
@@ -50,8 +51,9 @@ DETAIL_URL_PATTERNS = {
         r"/detail/\d+",
     ],
     "canary": [
-        r"/room/[a-zA-Z0-9]+",
-        r"/property/[a-zA-Z0-9]+",
+        r"/rooms/[a-zA-Z0-9\-]+",
+        r"/room/[a-zA-Z0-9\-]+",
+        r"/property/[a-zA-Z0-9\-]+",
     ],
 }
 
@@ -103,7 +105,13 @@ async def find_new_detail_url(
 
     async with async_playwright() as p:
         browser = await p.chromium.launch()
-        page = await browser.new_page(viewport={"width": viewport_width, "height": 800})
+        # Use realistic User-Agent to avoid bot detection
+        user_agent = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/126.0.0.0 Safari/537.36"
+        )
+        page = await browser.new_page(viewport={"width": viewport_width, "height": 800}, user_agent=user_agent)
 
         try:
             response = await page.goto(list_page_url, wait_until="networkidle", timeout=30000)
