@@ -817,14 +817,20 @@ def get_parser_for_source(source_name: str) -> PressSourceParser:
 
     Args:
         source_name: Name of the press source (case-insensitive).
+                     Matches on prefix/substring (e.g., "suumo-press" → SuumoPressParser).
 
     Returns:
         A parser instance for the source, or GenericPressParser if no
         specific parser is available.
     """
-    parsers: dict[str, PressSourceParser] = {
-        "suumo": SuumoPressParser(),
-        "athome": AthomePressParser(),
-        "canary": CanaryPressParser(),
-    }
-    return parsers.get(source_name.lower(), GenericPressParser())
+    name_lower = source_name.lower()
+
+    # Match by prefix/substring to handle names like "suumo-press", "suumo-data"
+    if "suumo" in name_lower:
+        return SuumoPressParser()
+    if "athome" in name_lower:
+        return AthomePressParser()
+    if "canary" in name_lower or "bluage" in name_lower:
+        return CanaryPressParser()
+
+    return GenericPressParser()
