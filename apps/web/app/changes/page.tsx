@@ -160,9 +160,80 @@ export default async function ChangesPage({
                     </span>
                   </div>
                 </div>
+
+                {/* Target URL */}
+                <div className="mb-2">
+                  <a
+                    href={change.page.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 hover:underline break-all"
+                  >
+                    {change.page.url}
+                  </a>
+                </div>
+
                 {change.summary && (
                   <p className="text-sm text-gray-700 mb-3">{change.summary}</p>
                 )}
+
+                {/* Before/After Screenshots */}
+                {(change.beforeScreenshotPath || change.afterScreenshotPath) && (
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    {change.beforeScreenshotPath && (
+                      <div>
+                        <p className="text-xs font-medium text-gray-500 mb-1">Before</p>
+                        <a href={change.beforeScreenshotPath} target="_blank" rel="noopener noreferrer">
+                          <img
+                            src={change.beforeScreenshotPath}
+                            alt="Before screenshot"
+                            className="w-full h-48 object-cover object-top rounded border border-gray-200 hover:opacity-80 transition-opacity"
+                          />
+                        </a>
+                      </div>
+                    )}
+                    {change.afterScreenshotPath && (
+                      <div>
+                        <p className="text-xs font-medium text-gray-500 mb-1">After</p>
+                        <a href={change.afterScreenshotPath} target="_blank" rel="noopener noreferrer">
+                          <img
+                            src={change.afterScreenshotPath}
+                            alt="After screenshot"
+                            className="w-full h-48 object-cover object-top rounded border border-gray-200 hover:opacity-80 transition-opacity"
+                          />
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Diff Text (collapsible) */}
+                {change.diffText && (
+                  <details className="mt-3">
+                    <summary className="text-xs font-medium text-gray-500 cursor-pointer hover:text-gray-700">
+                      DOM差分を表示
+                    </summary>
+                    <pre className="mt-2 p-3 bg-gray-900 text-gray-100 text-xs rounded-lg overflow-x-auto max-h-80 overflow-y-auto whitespace-pre-wrap break-all">
+                      {change.diffText.split("\n").map((line, i) => (
+                        <span
+                          key={i}
+                          className={
+                            line.startsWith("+") && !line.startsWith("+++")
+                              ? "text-green-400"
+                              : line.startsWith("-") && !line.startsWith("---")
+                              ? "text-red-400"
+                              : line.startsWith("@@")
+                              ? "text-cyan-400"
+                              : ""
+                          }
+                        >
+                          {line}{"\n"}
+                        </span>
+                      ))}
+                    </pre>
+                  </details>
+                )}
+
                 {change.advice && (
                   <div className="mt-3 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
                     <p className="text-xs font-medium text-yellow-800 mb-1">AIアドバイス</p>
