@@ -13,7 +13,7 @@ Supported sources:
 import re
 from abc import ABC, abstractmethod
 from typing import Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup, Tag
 
@@ -26,6 +26,25 @@ MAX_BODY_LENGTH = 100_000
 
 class PressSourceParser(ABC):
     """Base class for site-specific press release parsers."""
+
+    # URL patterns that are clearly NOT press release articles
+    _NON_ARTICLE_URL_PATTERNS = re.compile(
+        r"(^/$|^#|/contact/?$|/career/?$|/recruit/?$|/about/?$|/company/?$"
+        r"|/mission/?$|/member/?$|/service/?$|/services/?$|/privacy/?$"
+        r"|/terms/?$|/sitemap/?$|/faq/?$|/login/?$|/signup/?$"
+        r"|/download/?$|/seminar/?$|/whitepaper/?$"
+        r"|/cookie/?$|javascript:|mailto:)",
+        re.IGNORECASE,
+    )
+
+    # Title patterns that indicate non-article pages
+    _NON_ARTICLE_TITLE_PATTERNS = re.compile(
+        r"^(Mission|Member|Services|Contact|Career|About|会社概要"
+        r"|お問い合わせ|採用情報|事業内容|ミッション|メンバー"
+        r"|プライバシー|利用規約|サイトマップ|お役立ち資料"
+        r"|セミナー|資料ダウンロード)(\s|$)",
+        re.IGNORECASE,
+    )
 
     @abstractmethod
     def parse_article_list(self, html: str, base_url: str = "") -> list[dict]:
@@ -75,6 +94,42 @@ class PressSourceParser(ABC):
         # Replace multiple whitespace/newlines with single space
         text = re.sub(r"\s+", " ", text)
         return text.strip()
+
+    def _is_valid_article(self, title: str, url: str, source_url: str = "") -> bool:
+        """Check if a parsed item is actually a press release article.
+
+        Filters out navigation pages, static pages, and non-article URLs.
+
+        Args:
+            title: Article title.
+            url: Article URL.
+            source_url: The listing page URL (to exclude self-references).
+
+        Returns:
+            True if the item looks like a valid press article.
+        """
+        if not title or not url:
+            return False
+
+        # Exclude the listing page itself
+        if source_url and url.rstrip("/") == source_url.rstrip("/"):
+            return False
+
+        # Exclude URLs matching non-article patterns
+        parsed = urlparse(url)
+        path = parsed.path
+        if self._NON_ARTICLE_URL_PATTERNS.search(path):
+            return False
+
+        # Exclude titles matching non-article patterns
+        if self._NON_ARTICLE_TITLE_PATTERNS.match(title.strip()):
+            return False
+
+        # Exclude very short titles that are likely nav items
+        if len(title.strip()) < 10:
+            return False
+
+        return True
 
     def _resolve_url(self, url: str, base_url: str) -> str:
         """Resolve a potentially relative URL against the base URL."""
@@ -670,6 +725,126 @@ class CanaryPressParser(PressSourceParser):
         return self._truncate_body(best_text)
 
 
+class ItandiPressParser(PressSourceParser):
+    """Parser for ITANDI (イタンジ) press release pages.
+
+    ITANDI news is on their service site:
+    https://service.itandi.co.jp/news
+
+    The site is SPA-based with tab navigation (ITANDI BB, 賃貸管理, etc.).
+    Articles have dated entries with links to individual pages.
+    """
+
+    def parse_article_list(self, html: str, base_url: str = "") -> list[dict]:
+        """Parse ITANDI news article listing.
+
+        Focus on extracting only dated news items, ignoring navigation tabs
+        and service description pages.
+        """
+        soup = BeautifulSoup(html, "lxml")
+        articles: list[dict] = []
+        seen_urls: set[str] = set()
+
+        # Look for elements with date patterns followed by links
+        # ITANDI uses patterns like: "2026.06.18 お知らせ [title]"
+        for elem in soup.find_all(["article", "li", "div", "a"]):
+            text = elem.get_text()
+            # Must have a date pattern to be considered an article
+            date_match = re.search(
+                r"(\d{4})[./](\d{1,2})[./](\d{1,2})", text
+            )
+            if not date_match:
+                continue
+
+            # Find link in or around this element
+            link = None
+            if elem.name == "a":
+                link = elem
+            else:
+                link = elem.find("a", href=True)
+
+            if not link:
+                continue
+
+            href = str(link.get("href", ""))
+            if not href or href.startswith("#") or href == "/":
+                continue
+
+            title = self._clean_text(link.get_text())
+            if not title or len(title) < 10:
+                # Try parent or sibling for a better title
+                parent = elem if elem.name != "a" else elem.parent
+                if parent:
+                    # Extract text after the date
+                    full_text = self._clean_text(parent.get_text())
+                    # Remove the date prefix to get the title
+                    title_match = re.sub(
+                        r"^\d{4}[./]\d{1,2}[./]\d{1,2}\s*(プレスリリース|お知らせ|PRESS RELEASE|NEWS)?\s*",
+                        "", full_text
+                    ).strip()
+                    if title_match and len(title_match) > 10:
+                        title = title_match[:MAX_TITLE_LENGTH]
+
+            if not title or len(title) < 10:
+                continue
+
+            url = self._resolve_url(href, base_url)
+
+            # Skip non-article URLs (same domain service pages)
+            if re.search(
+                r"/(download|seminar|whitepaper|contact|about)/?$",
+                url, re.IGNORECASE
+            ):
+                continue
+
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+
+            year, month, day = date_match.groups()
+            published_at = f"{year}-{int(month):02d}-{int(day):02d}"
+
+            articles.append({
+                "title": self._truncate_title(title),
+                "url": url,
+                "published_at": published_at,
+            })
+
+        return articles
+
+    def parse_article_body(self, html: str) -> str:
+        """Parse ITANDI article page body text."""
+        soup = BeautifulSoup(html, "lxml")
+
+        # Remove non-content elements
+        for tag in soup.find_all(["script", "style", "nav", "header", "footer"]):
+            tag.decompose()
+
+        # Try ITANDI-specific content selectors
+        body_selectors = [
+            ".news-content",
+            ".article-content",
+            ".entry-content",
+            "article",
+            "main .content",
+            "main",
+        ]
+
+        for selector in body_selectors:
+            elem = soup.select_one(selector)
+            if elem and len(elem.get_text(strip=True)) > 100:
+                return self._truncate_body(self._clean_text(elem.get_text(separator=" ")))
+
+        # Fallback: largest block
+        best_text = ""
+        for elem in soup.find_all(["div", "article", "section", "main"]):
+            text = self._clean_text(elem.get_text(separator=" "))
+            if len(text) > len(best_text):
+                best_text = text
+
+        return self._truncate_body(best_text)
+
+
 class GenericPressParser(PressSourceParser):
     """Generic fallback parser using common HTML patterns.
 
@@ -832,5 +1007,7 @@ def get_parser_for_source(source_name: str) -> PressSourceParser:
         return AthomePressParser()
     if "canary" in name_lower or "bluage" in name_lower:
         return CanaryPressParser()
+    if "itandi" in name_lower:
+        return ItandiPressParser()
 
     return GenericPressParser()
