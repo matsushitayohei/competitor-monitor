@@ -190,7 +190,8 @@ async def scan_page(page_info: dict) -> dict:
             category = "OTHER"
             summary = "DOM構造に変更を検知しました"
 
-        # 8. Save change to DB
+        # 8. Save change to DB (with before/after screenshots)
+        before_screenshot_path = prev_snapshot.get("screenshotPath") if prev_snapshot else None
         change_id = save_change(
             page_id=page_id,
             service_name=service_name,
@@ -198,6 +199,8 @@ async def scan_page(page_info: dict) -> dict:
             category=category,
             summary=summary,
             diff_text=diff_text[:10000],  # Limit diff text size
+            before_screenshot_path=before_screenshot_path,
+            after_screenshot_path=screenshot_path,
         )
 
         # 9. Save advice if available
