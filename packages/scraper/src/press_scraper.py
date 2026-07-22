@@ -5,10 +5,12 @@ extracts articles using site-specific parsers, checks for duplicates,
 and saves new articles to the database.
 
 Key behaviors:
-- 30s timeout per HTTP request
+- 60s timeout per HTTP request (extended from 30s for slow corporate sites)
 - 2s inter-request delay between requests
 - Errors per source are handled independently (one failure doesn't block others)
 - Zero new articles is logged as success, not error
+- Stealth mode: extra headers, viewport, locale to avoid bot detection
+- Retry with alternative wait strategy on timeout
 """
 
 import asyncio
@@ -19,6 +21,7 @@ from playwright.async_api import (
     async_playwright,
     TimeoutError as PlaywrightTimeout,
     Page,
+    BrowserContext,
 )
 
 from press_db import get_active_press_sources, article_exists, save_press_article
@@ -26,11 +29,14 @@ from press_parsers import get_parser_for_source
 
 logger = logging.getLogger(__name__)
 
-# 30 second timeout per HTTP request (in milliseconds for Playwright)
-TIMEOUT_MS = 30_000
+# 60 second timeout per HTTP request (in milliseconds for Playwright)
+TIMEOUT_MS = 60_000
 
 # 2 second delay between requests to be polite to target sites
 INTER_REQUEST_DELAY = 2.0
+
+# Maximum retries for a source page fetch
+MAX_RETRIES = 2
 
 
 async def fetch_article_body(page: Page, url: str, parser) -> str:
@@ -45,7 +51,7 @@ async def fetch_article_body(page: Page, url: str, parser) -> str:
         Extracted body text string. Returns empty string on failure.
     """
     try:
-        response = await page.goto(url, wait_until="networkidle", timeout=TIMEOUT_MS)
+        response = await page.goto(url, wait_until="domcontentloaded", timeout=TIMEOUT_MS)
         if response and response.status >= 400:
             logger.warning(
                 f"HTTP {response.status} when fetching article body: {url}"
@@ -53,7 +59,7 @@ async def fetch_article_body(page: Page, url: str, parser) -> str:
             return ""
 
         # Wait briefly for dynamic content
-        await page.wait_for_timeout(1000)
+        await page.wait_for_timeout(2000)
 
         html = await page.content()
         body_text = parser.parse_article_body(html)
@@ -65,6 +71,81 @@ async def fetch_article_body(page: Page, url: str, parser) -> str:
     except Exception as e:
         logger.warning(f"Error fetching article body {url}: {e}")
         return ""
+
+
+async def _fetch_source_page(page: Page, source_url: str) -> str:
+    """Fetch a press source listing page with retry and fallback strategies.
+
+    Tries multiple wait strategies to handle slow-loading corporate sites
+    and aggressive bot detection (HTTP 403).
+
+    Args:
+        page: Playwright page instance.
+        source_url: URL of the press release listing page.
+
+    Returns:
+        HTML content of the page.
+
+    Raises:
+        Exception: If all retry attempts fail.
+    """
+    wait_strategies = ["domcontentloaded", "load", "networkidle"]
+
+    last_error = None
+    for attempt, wait_until in enumerate(wait_strategies[:MAX_RETRIES + 1]):
+        try:
+            if attempt > 0:
+                # Add delay between retries
+                await asyncio.sleep(3.0)
+                logger.info(
+                    f"  Retry {attempt}/{MAX_RETRIES} with wait_until='{wait_until}'"
+                )
+
+            response = await page.goto(
+                source_url, wait_until=wait_until, timeout=TIMEOUT_MS
+            )
+
+            if response and response.status == 403:
+                # Try scrolling or interacting to bypass simple bot checks
+                logger.warning(
+                    f"  HTTP 403 on attempt {attempt + 1}, trying next strategy..."
+                )
+                last_error = Exception(
+                    f"HTTP 403 from press source page: {source_url}"
+                )
+                continue
+
+            if response and response.status >= 400:
+                raise Exception(
+                    f"HTTP {response.status} from press source page: {source_url}"
+                )
+
+            # Wait for dynamic content to load
+            await page.wait_for_timeout(2000)
+
+            html = await page.content()
+            # Verify we got actual content (not a blank/error page)
+            if len(html) > 500:
+                return html
+
+            logger.warning(
+                f"  Page content too short ({len(html)} chars) on attempt {attempt + 1}"
+            )
+            last_error = Exception(
+                f"Page content too short from: {source_url}"
+            )
+
+        except PlaywrightTimeout:
+            last_error = PlaywrightTimeout(
+                f"Timeout ({TIMEOUT_MS // 1000}s) accessing {source_url}"
+            )
+            logger.warning(
+                f"  Timeout on attempt {attempt + 1} with wait_until='{wait_until}'"
+            )
+            continue
+
+    # All attempts failed
+    raise last_error
 
 
 async def scrape_press_source(page: Page, source: dict) -> list[dict]:
@@ -90,20 +171,8 @@ async def scrape_press_source(page: Page, source: dict) -> list[dict]:
     # Get the appropriate parser for this source
     parser = get_parser_for_source(source_name)
 
-    # Fetch the press release listing page
-    response = await page.goto(
-        source_url, wait_until="networkidle", timeout=TIMEOUT_MS
-    )
-
-    if response and response.status >= 400:
-        raise Exception(
-            f"HTTP {response.status} from press source page: {source_url}"
-        )
-
-    # Wait for dynamic content to load
-    await page.wait_for_timeout(1000)
-
-    html = await page.content()
+    # Fetch the press release listing page with retry logic
+    html = await _fetch_source_page(page, source_url)
 
     # Extract article list from the listing page
     articles = parser.parse_article_list(html, base_url=source_url)
@@ -179,20 +248,39 @@ async def run_press_scraper() -> dict:
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        # Use realistic User-Agent to avoid bot detection (e.g. athome returns HTTP 405)
-        user_agent = (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/126.0.0.0 Safari/537.36"
+        # Use realistic browser context to avoid bot detection
+        context = await browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/126.0.0.0 Safari/537.36"
+            ),
+            viewport={"width": 1920, "height": 1080},
+            locale="ja-JP",
+            timezone_id="Asia/Tokyo",
+            extra_http_headers={
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Cache-Control": "no-cache",
+                "Sec-Ch-Ua": '"Chromium";v="126", "Not A(Brand";v="8", "Google Chrome";v="126"',
+                "Sec-Ch-Ua-Mobile": "?0",
+                "Sec-Ch-Ua-Platform": '"Windows"',
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+                "Upgrade-Insecure-Requests": "1",
+            },
         )
-        page = await browser.new_page(user_agent=user_agent)
+        page = await context.new_page()
 
         for source in sources:
             try:
                 new_articles = await scrape_press_source(page, source)
                 results["new_articles"] += len(new_articles)
             except PlaywrightTimeout as e:
-                error_msg = f"Timeout (30s) accessing {source['url']}"
+                error_msg = f"Timeout ({TIMEOUT_MS // 1000}s) accessing {source['url']}"
                 logger.error(f"Failed to scrape {source['name']}: {error_msg}")
                 results["errors"].append({
                     "source": source["name"],
@@ -210,6 +298,7 @@ async def run_press_scraper() -> dict:
             # Inter-request delay between sources
             await asyncio.sleep(INTER_REQUEST_DELAY)
 
+        await context.close()
         await browser.close()
 
     logger.info(
