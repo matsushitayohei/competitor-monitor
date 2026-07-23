@@ -9,7 +9,7 @@ Key behaviors:
 - 2s inter-request delay between requests
 - Errors per source are handled independently (one failure doesn't block others)
 - Zero new articles is logged as success, not error
-- Stealth mode: extra headers, viewport, locale to avoid bot detection
+- Stealth mode: playwright-stealth to bypass bot detection (webdriver flag, etc.)
 - Retry with alternative wait strategy on timeout
 """
 
@@ -23,6 +23,7 @@ from playwright.async_api import (
     Page,
     BrowserContext,
 )
+from playwright_stealth import stealth_async
 
 from press_db import get_active_press_sources, article_exists, save_press_article
 from press_parsers import get_parser_for_source
@@ -95,8 +96,8 @@ async def _fetch_source_page(page: Page, source_url: str) -> str:
     for attempt, wait_until in enumerate(wait_strategies[:MAX_RETRIES + 1]):
         try:
             if attempt > 0:
-                # Add delay between retries
-                await asyncio.sleep(3.0)
+                # Add longer delay between retries to appear more human-like
+                await asyncio.sleep(5.0 + attempt * 2.0)
                 logger.info(
                     f"  Retry {attempt}/{MAX_RETRIES} with wait_until='{wait_until}'"
                 )
@@ -106,10 +107,20 @@ async def _fetch_source_page(page: Page, source_url: str) -> str:
             )
 
             if response and response.status == 403:
-                # Try scrolling or interacting to bypass simple bot checks
+                # Wait longer for JS challenge pages (Cloudflare, WAF, etc.)
                 logger.warning(
-                    f"  HTTP 403 on attempt {attempt + 1}, trying next strategy..."
+                    f"  HTTP 403 on attempt {attempt + 1}, "
+                    f"waiting for JS challenge resolution..."
                 )
+                await page.wait_for_timeout(5000)
+                # Check if page content loaded after JS challenge
+                html = await page.content()
+                if len(html) > 1000 and "403" not in html[:200]:
+                    logger.info(
+                        f"  JS challenge resolved after wait (content: {len(html)} chars)"
+                    )
+                    return html
+
                 last_error = Exception(
                     f"HTTP 403 from press source page: {source_url}"
                 )
@@ -252,7 +263,14 @@ async def run_press_scraper() -> dict:
     logger.info(f"Starting press scraper with {len(sources)} active sources")
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-features=IsolateOrigins,site-per-process",
+                "--no-sandbox",
+            ],
+        )
         # Use realistic browser context to avoid bot detection
         context = await browser.new_context(
             user_agent=(
@@ -281,6 +299,8 @@ async def run_press_scraper() -> dict:
         # Create a fresh page per source to avoid cookie/session cross-contamination
         for source in sources:
             page = await context.new_page()
+            # Apply stealth scripts to bypass bot detection (webdriver flag, etc.)
+            await stealth_async(page)
             try:
                 new_articles = await scrape_press_source(page, source)
                 results["new_articles"] += len(new_articles)
