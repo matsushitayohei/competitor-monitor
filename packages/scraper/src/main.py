@@ -190,6 +190,12 @@ async def scan_page(page_info: dict) -> dict:
             category = "OTHER"
             summary = "DOM構造に変更を検知しました"
 
+        # Store analysis results in the result dict for notification
+        result["category"] = category
+        result["summary"] = summary
+        result["page_type"] = page_type
+        result["priority"] = advice_data.get("priority", "low") if advice_data else "low"
+
         # 8. Save change to DB (with before/after screenshots)
         before_screenshot_path = prev_snapshot.get("screenshotPath") if prev_snapshot else None
         change_id = save_change(
@@ -338,42 +344,219 @@ async def main():
 
 
 async def send_slack_notification(results: list[dict]):
-    """Send a Slack notification about detected changes and URL rotations."""
+    """Send a structured Slack Block Kit notification about detected changes.
+
+    Groups changes by URL (deduplicating PC/SP/both), shows category/summary/priority,
+    and provides a link to the web dashboard.
+    """
     import httpx
 
     changes = [r for r in results if r["change_detected"]]
     rotations = [r for r in results if r.get("url_rotated")]
-    no_fallback = [r for r in results if r["status"].endswith("_no_fallback") or r["status"] == "expired_no_valid_fallback"]
+    no_fallback = [
+        r for r in results
+        if r["status"].endswith("_no_fallback") or r["status"] == "expired_no_valid_fallback"
+    ]
 
-    text = ""
-
-    if changes:
-        text += f":mag: 競合サイト変更検知: {len(changes)}件\n"
-        for r in changes:
-            text += f"• {r['service']} ({r['device']}): {r['url']}\n"
-
-    if rotations:
-        text += f"\n:arrows_counterclockwise: 物件URL自動切替: {len(rotations)}件\n"
-        for r in rotations:
-            text += f"• {r['service']} ({r['device']}): {r.get('new_url', 'N/A')}\n"
-
-    if no_fallback:
-        text += f"\n:warning: URL切替失敗（要手動対応）: {len(no_fallback)}件\n"
-        for r in no_fallback:
-            text += f"• {r['service']} ({r['device']}): {r['url']}\n"
-
-    if not text:
+    if not changes and not rotations and not no_fallback:
         return
+
+    app_url = os.environ.get("NEXT_PUBLIC_APP_URL", "")
+    blocks: list[dict] = []
+
+    # --- Header ---
+    if changes:
+        # Deduplicate by URL (merge PC/SP/both into one entry)
+        grouped = _group_changes_by_url(changes)
+        unique_count = len(grouped)
+
+        blocks.append({
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": f"🔍 競合変更レポート ({len(grouped)}箇所)",
+                "emoji": True,
+            },
+        })
+
+        # Separate by priority
+        high_priority = [g for g in grouped if g["priority"] == "high"]
+        medium_priority = [g for g in grouped if g["priority"] == "medium"]
+        low_priority = [g for g in grouped if g["priority"] == "low"]
+
+        # High priority section
+        if high_priority:
+            blocks.append({"type": "divider"})
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*🔴 対応検討推奨*",
+                },
+            })
+            for item in high_priority:
+                blocks.append(_format_change_block(item))
+
+        # Medium priority section
+        if medium_priority:
+            blocks.append({"type": "divider"})
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*🟡 参考情報*",
+                },
+            })
+            for item in medium_priority:
+                blocks.append(_format_change_block(item))
+
+        # Low priority (compact)
+        if low_priority:
+            blocks.append({"type": "divider"})
+            low_text = "*⚪ その他の変更*\n"
+            for item in low_priority:
+                service_display = item["service"].upper()
+                page_label = _page_type_label(item.get("page_type", ""))
+                low_text += f"• {service_display} ({page_label}): {item['summary'][:60]}\n"
+            blocks.append({
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": low_text.strip()},
+            })
+
+    # --- URL rotations ---
+    if rotations:
+        blocks.append({"type": "divider"})
+        rotation_text = f"*🔄 物件URL自動切替: {len(rotations)}件*\n"
+        for r in rotations:
+            rotation_text += f"• {r['service']} ({r['device']}): {r.get('new_url', 'N/A')}\n"
+        blocks.append({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": rotation_text.strip()},
+        })
+
+    # --- No fallback warnings ---
+    if no_fallback:
+        blocks.append({"type": "divider"})
+        fallback_text = f"*⚠️ URL切替失敗（要手動対応）: {len(no_fallback)}件*\n"
+        for r in no_fallback:
+            fallback_text += f"• {r['service']} ({r['device']}): {r['url']}\n"
+        blocks.append({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": fallback_text.strip()},
+        })
+
+    # --- Footer with dashboard link ---
+    if app_url:
+        blocks.append({"type": "divider"})
+        blocks.append({
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": f"📊 <{app_url}/changes|ダッシュボードで詳細を確認>",
+                },
+            ],
+        })
+
+    # --- Send ---
+    # Build fallback text for clients that don't support blocks
+    fallback_text = f"競合変更レポート: {len(changes)}件の変更を検知"
 
     try:
         async with httpx.AsyncClient() as client:
             await client.post(
                 os.environ["SLACK_WEBHOOK_URL"],
-                json={"text": text.strip()},
+                json={"text": fallback_text, "blocks": blocks},
                 timeout=10,
             )
     except Exception as e:
         print(f"Slack notification error: {e}")
+
+
+def _group_changes_by_url(changes: list[dict]) -> list[dict]:
+    """Group changes by URL, merging PC/SP/both entries into one.
+
+    Returns a list of deduplicated change summaries with merged device info.
+    """
+    from collections import OrderedDict
+
+    grouped: OrderedDict[str, dict] = OrderedDict()
+
+    for r in changes:
+        url = r["url"]
+        if url not in grouped:
+            grouped[url] = {
+                "url": url,
+                "service": r["service"],
+                "devices": [r["device"]],
+                "category": r.get("category", "OTHER"),
+                "summary": r.get("summary", "DOM構造に変更を検知"),
+                "priority": r.get("priority", "low"),
+                "page_type": r.get("page_type", ""),
+            }
+        else:
+            if r["device"] not in grouped[url]["devices"]:
+                grouped[url]["devices"].append(r["device"])
+            # Use higher priority if available
+            existing_priority = grouped[url]["priority"]
+            new_priority = r.get("priority", "low")
+            if _priority_rank(new_priority) > _priority_rank(existing_priority):
+                grouped[url]["priority"] = new_priority
+            # Prefer longer summary
+            new_summary = r.get("summary", "")
+            if new_summary and len(new_summary) > len(grouped[url]["summary"] or ""):
+                grouped[url]["summary"] = new_summary
+
+    return list(grouped.values())
+
+
+def _priority_rank(priority: str) -> int:
+    """Return numeric rank for priority comparison."""
+    return {"high": 3, "medium": 2, "low": 1}.get(priority, 0)
+
+
+def _page_type_label(page_type: str) -> str:
+    """Convert page_type to Japanese label."""
+    labels = {
+        "detail": "物件詳細",
+        "list": "一覧",
+        "top": "トップ",
+        "search": "検索結果",
+    }
+    return labels.get(page_type, page_type or "不明")
+
+
+CATEGORY_LABELS = {
+    "CRO": "CRO",
+    "AD_PRODUCT": "広告商品",
+    "SEO": "SEO",
+    "AI": "AI機能",
+    "OTHER": "その他",
+}
+
+
+def _format_change_block(item: dict) -> dict:
+    """Format a single grouped change as a Slack Block Kit section."""
+    service_display = item["service"].upper()
+    page_label = _page_type_label(item.get("page_type", ""))
+    devices = "/".join(item.get("devices", []))
+    category = CATEGORY_LABELS.get(item.get("category", "OTHER"), "その他")
+    summary = item.get("summary", "変更を検知")
+
+    # Truncate summary to keep blocks readable
+    if summary and len(summary) > 120:
+        summary = summary[:117] + "..."
+
+    text = (
+        f"*【{service_display}】{page_label}* ({devices})\n"
+        f"分類: {category}\n"
+        f"{summary}"
+    )
+
+    return {
+        "type": "section",
+        "text": {"type": "mrkdwn", "text": text},
+    }
 
 
 if __name__ == "__main__":
