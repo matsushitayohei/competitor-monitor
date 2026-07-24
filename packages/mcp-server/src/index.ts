@@ -1,9 +1,9 @@
 ﻿import { config } from "dotenv";
 import { resolve } from "path";
 
-// Load .env from MCP server directory, fallback to apps/web/.env.local
-config({ path: resolve(__dirname, "../.env") });
+// Load apps/web/.env.local first (base config), then override with MCP server's own .env
 config({ path: resolve(__dirname, "../../../apps/web/.env.local") });
+config({ path: resolve(__dirname, "../.env"), override: true });
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
