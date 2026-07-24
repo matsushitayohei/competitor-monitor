@@ -21,6 +21,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          pip install setuptools
           pip install -r packages/scraper/requirements.txt
           pip install -r packages/analyzer/requirements.txt
 
