@@ -20,7 +20,10 @@ def upload_screenshot(screenshot_bytes: bytes, page_id: str, device: str) -> Opt
     """
     token = os.environ.get("BLOB_READ_WRITE_TOKEN")
     if not token:
+        print(f"    [Storage] BLOB_READ_WRITE_TOKEN is not set, skipping screenshot upload")
         return None
+
+    print(f"    [Storage] Uploading screenshot ({len(screenshot_bytes)} bytes)...")
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     pathname = f"screenshots/{page_id}/{device}_{timestamp}.png"
@@ -40,7 +43,9 @@ def upload_screenshot(screenshot_bytes: bytes, page_id: str, device: str) -> Opt
         )
         response.raise_for_status()
         data = response.json()
-        return data.get("url")
+        url = data.get("url")
+        print(f"    [Storage] Upload success: {url[:80] if url else 'no url in response'}...")
+        return url
     except Exception as e:
         print(f"    [Storage] Screenshot upload failed: {e}")
         return None
