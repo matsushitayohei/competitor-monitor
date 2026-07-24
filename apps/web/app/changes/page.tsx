@@ -1,5 +1,6 @@
 ﻿import { prisma } from "@/lib/prisma";
 import { Sidebar } from "@/components/sidebar";
+import { ScreenshotImage } from "@/components/screenshot-image";
 import Link from "next/link";
 
 export const dynamic = 'force-dynamic';
@@ -181,28 +182,18 @@ export default async function ChangesPage({
                 {(change.beforeScreenshotPath || change.afterScreenshotPath) && (
                   <div className="mt-3 grid grid-cols-2 gap-3">
                     {change.beforeScreenshotPath && (
-                      <div>
-                        <p className="text-xs font-medium text-gray-500 mb-1">Before</p>
-                        <a href={change.beforeScreenshotPath} target="_blank" rel="noopener noreferrer">
-                          <img
-                            src={change.beforeScreenshotPath}
-                            alt="Before screenshot"
-                            className="w-full h-48 object-cover object-top rounded border border-gray-200 hover:opacity-80 transition-opacity"
-                          />
-                        </a>
-                      </div>
+                      <ScreenshotImage
+                        src={change.beforeScreenshotPath}
+                        alt="Before screenshot"
+                        label="Before"
+                      />
                     )}
                     {change.afterScreenshotPath && (
-                      <div>
-                        <p className="text-xs font-medium text-gray-500 mb-1">After</p>
-                        <a href={change.afterScreenshotPath} target="_blank" rel="noopener noreferrer">
-                          <img
-                            src={change.afterScreenshotPath}
-                            alt="After screenshot"
-                            className="w-full h-48 object-cover object-top rounded border border-gray-200 hover:opacity-80 transition-opacity"
-                          />
-                        </a>
-                      </div>
+                      <ScreenshotImage
+                        src={change.afterScreenshotPath}
+                        alt="After screenshot"
+                        label="After"
+                      />
                     )}
                   </div>
                 )}
