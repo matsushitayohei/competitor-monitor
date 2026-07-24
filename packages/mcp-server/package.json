@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "@competitor-monitor/mcp-server",
   "version": "1.0.0",
   "description": "MCP Server for Competitor Monitor - provides competitor UI/UX change data to Kiro",
@@ -8,15 +8,19 @@
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts"
   },
+  "prisma": {
+    "schema": "../../apps/web/prisma/schema.prisma"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@prisma/client": "^5.20.0",
+    "dotenv": "^17.4.2",
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "prisma": "^5.20.0",
-    "typescript": "^5.5.0",
     "ts-node": "^10.9.0",
-    "@types/node": "^22.0.0"
+    "typescript": "^5.5.0"
   }
 }

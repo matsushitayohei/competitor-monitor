@@ -1,0 +1,27 @@
+{
+  "mcpServers": {
+    "competitor-monitor": {
+      "command": "npx",
+      "args": [
+        "--prefix",
+        "c:\\Users\\matsushy\\Desktop\\competitor-monitor\\packages\\mcp-server",
+        "ts-node",
+        "--transpile-only",
+        "c:\\Users\\matsushy\\Desktop\\competitor-monitor\\packages\\mcp-server\\src\\index.ts"
+      ],
+      "disabled": false,
+      "autoApprove": [
+        "get_unanalyzed_changes",
+        "get_change_diff",
+        "get_recent_changes",
+        "get_change_detail",
+        "get_competitor_summary",
+        "search_changes",
+        "save_kiro_advice",
+        "query_press_articles",
+        "get_latest_press_articles",
+        "list_press_sources"
+      ]
+    }
+  }
+}

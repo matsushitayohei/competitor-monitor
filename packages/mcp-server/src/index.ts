@@ -1,4 +1,11 @@
-﻿import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+﻿import { config } from "dotenv";
+import { resolve } from "path";
+
+// Load .env from MCP server directory, fallback to apps/web/.env.local
+config({ path: resolve(__dirname, "../.env") });
+config({ path: resolve(__dirname, "../../../apps/web/.env.local") });
+
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { PrismaClient } from "@prisma/client";
