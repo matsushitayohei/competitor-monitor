@@ -23,7 +23,6 @@ from playwright.async_api import (
     Page,
     BrowserContext,
 )
-from playwright_stealth import stealth_async
 
 from press_db import get_active_press_sources, article_exists, save_press_article
 from press_parsers import get_parser_for_source
@@ -300,7 +299,12 @@ async def run_press_scraper() -> dict:
         for source in sources:
             page = await context.new_page()
             # Apply stealth scripts to bypass bot detection (webdriver flag, etc.)
-            await stealth_async(page)
+            await page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                window.chrome = { runtime: {} };
+                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+                Object.defineProperty(navigator, 'languages', { get: () => ['ja', 'en-US', 'en'] });
+            """)
             try:
                 new_articles = await scrape_press_source(page, source)
                 results["new_articles"] += len(new_articles)
