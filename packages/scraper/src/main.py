@@ -137,11 +137,21 @@ async def scan_page(page_info: dict) -> dict:
             print(f"    No changes detected")
             return result
 
+        # 5.5. Check for rendering failure (DOM drastically smaller than previous)
+        prev_structure = prev_snapshot.get("domStructure", "")
+        current_size = len(dom_structure)
+        prev_size = len(prev_structure)
+
+        if prev_size > 0 and current_size < prev_size * 0.1:
+            print(f"    ⚠️ Rendering failure detected: DOM size dropped to {current_size}/{prev_size} "
+                  f"({current_size * 100 // prev_size}%). Skipping as false positive.")
+            result["status"] = "rendering_failure"
+            return result
+
         # 6. Change detected! Compute detailed diff
         print(f"    Change detected!")
         result["change_detected"] = True
 
-        prev_structure = prev_snapshot.get("domStructure", "")
         diff_result = compute_diff(prev_structure, dom_structure)
 
         if not diff_result:
@@ -320,9 +330,11 @@ async def main():
     changes = sum(1 for r in results if r["change_detected"])
     errors = sum(1 for r in results if r["status"].startswith("error"))
     first_scans = sum(1 for r in results if r["status"] == "first_scan")
+    rendering_failures = sum(1 for r in results if r["status"] == "rendering_failure")
 
     print(f"\n[{datetime.now().isoformat()}] Scan complete.")
-    print(f"  Total: {total}, Changes: {changes}, First scans: {first_scans}, Errors: {errors}")
+    print(f"  Total: {total}, Changes: {changes}, First scans: {first_scans}, "
+          f"Errors: {errors}, Rendering failures: {rendering_failures}")
 
     # Fail the job if majority of pages errored (so GitHub Actions shows failure)
     if errors > 0 and errors >= total * 0.5:
@@ -338,6 +350,7 @@ async def main():
         or any(r.get("url_rotated") for r in results)
         or any(r["status"].endswith("_no_fallback") for r in results)
         or any(r["status"] == "expired_no_valid_fallback" for r in results)
+        or rendering_failures >= total * 0.3  # Alert if 30%+ pages had rendering failures
     )
     if has_notifications and os.environ.get("SLACK_WEBHOOK_URL"):
         await send_slack_notification(results)
@@ -443,6 +456,21 @@ async def send_slack_notification(results: list[dict]):
         blocks.append({
             "type": "section",
             "text": {"type": "mrkdwn", "text": fallback_text.strip()},
+        })
+
+    # --- Rendering failures (only show if significant) ---
+    rendering_failures = [r for r in results if r["status"] == "rendering_failure"]
+    if len(rendering_failures) >= len(results) * 0.3:
+        blocks.append({"type": "divider"})
+        blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    f"*🔧 レンダリング失敗（誤検知除外）: {len(rendering_failures)}件*\n"
+                    f"ページ読み込み不完全を検知し自動スキップ。頻発する場合はスクレイパーの待機時間調整が必要。"
+                ),
+            },
         })
 
     # --- Footer with dashboard link ---
