@@ -45,10 +45,8 @@ def upload_screenshot(screenshot_bytes: bytes, page_id: str, device: str) -> Opt
             "x-add-random-suffix": "1",
         }
 
-        # Detect if this is a private store token and set access accordingly
-        # Private store tokens contain the store ID that has "private" in URL
-        # We always set this header - for public stores it's ignored
-        headers["x-access"] = "public"
+        # Private store requires x-access: "private"
+        headers["x-access"] = "private"
 
         response = httpx.put(
             url,
