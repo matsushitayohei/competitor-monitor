@@ -149,6 +149,16 @@ async def scan_page(page_info: dict) -> dict:
             result["status"] = "rendering_failure"
             return result
 
+        # 5.6. Re-normalize previous structure if it was saved with old logic
+        # (handles transition period after diff.py normalization improvements)
+        if prev_structure and '[HIDDEN_VALUE]' not in prev_structure:
+            # Previous snapshot was saved without attribute normalization
+            # Re-extract from raw HTML is not possible (we only saved the processed structure)
+            # Skip this comparison and treat as baseline reset
+            print(f"    ⚠️ Previous snapshot uses old normalization format - treating as baseline reset")
+            result["status"] = "baseline_reset"
+            return result
+
         # 6. Change detected! Compute detailed diff
         print(f"    Change detected!")
         result["change_detected"] = True
@@ -350,9 +360,11 @@ async def main():
     errors = sum(1 for r in results if r["status"].startswith("error"))
     first_scans = sum(1 for r in results if r["status"] == "first_scan")
     rendering_failures = sum(1 for r in results if r["status"] == "rendering_failure")
+    baseline_resets = sum(1 for r in results if r["status"] == "baseline_reset")
 
     print(f"\n[{datetime.now().isoformat()}] Scan complete.")
     print(f"  Total: {total}, Changes: {changes}, First scans: {first_scans}, "
+          f"Baseline resets: {baseline_resets}, "
           f"Errors: {errors}, Rendering failures: {rendering_failures}")
 
     # Fail the job if majority of pages errored (so GitHub Actions shows failure)
