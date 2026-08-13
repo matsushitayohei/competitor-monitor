@@ -45,8 +45,7 @@ def upload_screenshot(screenshot_bytes: bytes, page_id: str, device: str) -> Opt
             "x-add-random-suffix": "1",
         }
 
-        # Private store requires x-access: "private"
-        headers["x-access"] = "private"
+        # Public store - no x-access header needed (defaults to public)
 
         response = httpx.put(
             url,
