@@ -31,6 +31,7 @@ from db import (
 from url_fallback import find_new_detail_url
 from expired_detector import is_expired_page
 from storage import upload_screenshot
+from visual_diff import generate_visual_diff
 
 
 def compute_dom_hash(structure: str) -> str:
@@ -208,6 +209,23 @@ async def scan_page(page_info: dict) -> dict:
 
         # 8. Save change to DB (with before/after screenshots)
         before_screenshot_path = prev_snapshot.get("screenshotPath") if prev_snapshot else None
+
+        # 8.5 Generate visual diff image if both screenshots are available
+        visual_diff_path = None
+        if before_screenshot_path and screenshot_path:
+            try:
+                import httpx as _httpx
+                # Download before screenshot for comparison
+                before_response = _httpx.get(before_screenshot_path, timeout=30)
+                if before_response.status_code == 200:
+                    diff_image_bytes = generate_visual_diff(before_response.content, screenshot_bytes)
+                    if diff_image_bytes:
+                        visual_diff_path = upload_screenshot(diff_image_bytes, f"{page_id}/diff", device)
+                        if visual_diff_path:
+                            print(f"    Visual diff generated and uploaded")
+            except Exception as e:
+                print(f"    Visual diff generation failed: {e}")
+
         change_id = save_change(
             page_id=page_id,
             service_name=service_name,
@@ -217,6 +235,7 @@ async def scan_page(page_info: dict) -> dict:
             diff_text=diff_text[:10000],  # Limit diff text size
             before_screenshot_path=before_screenshot_path,
             after_screenshot_path=screenshot_path,
+            visual_diff_path=visual_diff_path,
         )
 
         # 9. Save advice if available

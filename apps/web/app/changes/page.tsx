@@ -198,6 +198,17 @@ export default async function ChangesPage({
                   </div>
                 )}
 
+                {/* Visual Diff */}
+                {change.visualDiffPath && (
+                  <div className="mt-3">
+                    <ScreenshotImage
+                      src={change.visualDiffPath}
+                      alt="Visual diff"
+                      label="差分ハイライト（赤=変更箇所）"
+                    />
+                  </div>
+                )}
+
                 {/* Diff Text (collapsible) */}
                 {change.diffText && (
                   <details className="mt-3">

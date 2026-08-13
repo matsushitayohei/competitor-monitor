@@ -102,7 +102,8 @@ def save_snapshot(page_id: str, dom_hash: str, dom_structure: str, screenshot_pa
 def save_change(page_id: str, service_name: str, page_type: str, category: Optional[str],
                 summary: Optional[str], diff_text: Optional[str],
                 before_screenshot_path: Optional[str] = None,
-                after_screenshot_path: Optional[str] = None) -> str:
+                after_screenshot_path: Optional[str] = None,
+                visual_diff_path: Optional[str] = None) -> str:
     """Save a detected change and return its ID."""
     import uuid
     change_id = str(uuid.uuid4())
@@ -111,10 +112,10 @@ def save_change(page_id: str, service_name: str, page_type: str, category: Optio
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO "Change" (id, "pageId", "serviceName", "pageType", category, summary, "diffText",
-                    "beforeScreenshotPath", "afterScreenshotPath", "detectedAt")
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    "beforeScreenshotPath", "afterScreenshotPath", "visualDiffPath", "detectedAt")
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (change_id, page_id, service_name, page_type, category, summary, diff_text,
-                  before_screenshot_path, after_screenshot_path, datetime.now(timezone.utc)))
+                  before_screenshot_path, after_screenshot_path, visual_diff_path, datetime.now(timezone.utc)))
             conn.commit()
         return change_id
     finally:
