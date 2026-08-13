@@ -74,7 +74,7 @@ export function validatePageInput(data: {
   if (!partial || data.pageType !== undefined) {
     if (!data.pageType) {
       fields.pageType = 'ページ種別を選択してください';
-    } else if (!['listing', 'detail', 'search'].includes(data.pageType)) {
+    } else if (!['listing', 'detail', 'search', 'form'].includes(data.pageType)) {
       fields.pageType = 'ページ種別を選択してください';
     }
   }

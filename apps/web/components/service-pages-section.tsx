@@ -79,6 +79,7 @@ export function ServicePagesSection({ serviceId, pages, onRefresh }: ServicePage
       case "listing": return "物件一覧";
       case "detail": return "物件詳細";
       case "search": return "条件設定";
+      case "form": return "フォーム";
       default: return type;
     }
   };
