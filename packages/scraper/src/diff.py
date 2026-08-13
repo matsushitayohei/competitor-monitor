@@ -94,12 +94,93 @@ def extract_structure(html: str, exclude_selectors: Optional[list] = None) -> st
     for tag in soup.find_all(True):  # All tags
         _normalize_tag_attrs(tag)
 
-    # Remove text content, keep structure only
+    # Selectively normalize text content:
+    # - Keep text in CRO-significant elements (buttons, headings, links, labels)
+    # - Replace text in property-specific / noise elements with [TEXT]
     for text_node in soup.find_all(string=True):
         if text_node.parent and text_node.parent.name not in ['script', 'style']:
-            text_node.replace_with('[TEXT]')
+            if _should_preserve_text(text_node.parent):
+                # Check if preserved text contains property-specific noise
+                text_content = str(text_node).strip()
+                if text_content and _PROPERTY_NOISE_RE.search(text_content):
+                    # Property-specific text even in CRO element → normalize
+                    text_node.replace_with('[PROPERTY_TEXT]')
+                # else: Keep the text as-is (CRO-significant)
+            else:
+                text_node.replace_with('[TEXT]')
 
     return str(soup)
+
+
+# Tags whose text content is CRO-significant and should be preserved for diff
+_CRO_SIGNIFICANT_TAGS = frozenset([
+    'button', 'a', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'label', 'legend', 'th', 'caption', 'summary',
+    'nav',  # Navigation text changes matter
+])
+
+# class/role patterns indicating CRO-significant interactive elements
+_CRO_SIGNIFICANT_PATTERNS = [
+    'btn', 'button', 'cta', 'submit', 'action',
+    'tab', 'nav', 'menu', 'breadcrumb',
+    'badge', 'tag', 'chip', 'alert', 'toast',
+]
+
+# Patterns in text content that indicate property-specific noise
+# (even if inside a CRO-significant tag like a link)
+_PROPERTY_NOISE_PATTERNS = [
+    r'\d{1,4}万円',         # 価格 (e.g., 1500万円)
+    r'\d+\.\d+万円',       # 価格 (e.g., 5.5万円)
+    r'\d+円',              # 価格 (e.g., 85000円)
+    r'築\d+年',            # 築年数
+    r'\d+階建',            # 階数
+    r'\d+[LDK]+',          # 間取り
+    r'\d+\.\d+m²',         # 面積
+    r'\d+㎡',              # 面積
+    r'20\d{2}/\d{1,2}/\d{1,2}',  # 日付
+    r'20\d{2}年\d{1,2}月',       # 日付
+]
+
+_PROPERTY_NOISE_RE = re.compile('|'.join(_PROPERTY_NOISE_PATTERNS))
+
+
+def _should_preserve_text(tag: Tag) -> bool:
+    """Determine if text content within this tag is CRO-significant.
+
+    Returns True if the text should be preserved for diff comparison
+    (buttons, headings, links, etc.), False if it should be replaced with [TEXT].
+    """
+    if not tag or not tag.name:
+        return False
+
+    # Direct match on tag name
+    if tag.name in _CRO_SIGNIFICANT_TAGS:
+        return True
+
+    # Check role attribute
+    role = tag.get('role', '')
+    if role in ('button', 'tab', 'menuitem', 'link', 'heading', 'navigation'):
+        return True
+
+    # Check if any ancestor is a CRO-significant tag (e.g., span inside a button)
+    for parent in tag.parents:
+        if parent.name in _CRO_SIGNIFICANT_TAGS:
+            return True
+        # Stop at reasonable depth to avoid performance issues
+        if parent.name in ('body', 'html', '[document]'):
+            break
+
+    # Check class names for CRO-significant patterns
+    classes = tag.get('class', [])
+    if isinstance(classes, list):
+        class_str = ' '.join(classes).lower()
+    else:
+        class_str = str(classes).lower()
+
+    if any(pattern in class_str for pattern in _CRO_SIGNIFICANT_PATTERNS):
+        return True
+
+    return False
 
 
 def _normalize_tag_attrs(tag: Tag) -> None:
