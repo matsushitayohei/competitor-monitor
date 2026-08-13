@@ -47,6 +47,32 @@ EXPIRED_PATTERNS: dict[str, list[tuple[str, int]]] = {
         (r"現在募集していません", 8),
         (r"この部屋の募集は終了", 10),
     ],
+    "carsensor": [
+        # Carsensor expired listing patterns
+        (r"この車両の掲載は終了", 10),
+        (r"掲載期間が終了", 10),
+        (r"この車両は販売済み", 10),
+        (r"販売終了", 8),
+        (r"SOLD OUT", 8),
+        (r"売約済み", 8),
+        (r"この中古車は掲載が終了", 10),
+        (r"掲載終了", 6),
+        (r"在庫確認ができません", 8),
+        (r"類似の中古車を探す", 3),
+    ],
+    "goo-net": [
+        # Goo-net expired listing patterns
+        (r"この車両の掲載は終了", 10),
+        (r"掲載期間が終了", 10),
+        (r"この車両は売約済み", 10),
+        (r"売約済み", 8),
+        (r"SOLD", 8),
+        (r"販売終了", 8),
+        (r"在庫なし", 8),
+        (r"掲載終了", 6),
+        (r"この中古車情報は掲載が終了", 10),
+        (r"似た条件の中古車", 3),
+    ],
 }
 
 # Threshold for considering a page as expired

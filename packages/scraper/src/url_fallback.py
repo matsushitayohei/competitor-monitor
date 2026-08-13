@@ -35,6 +35,20 @@ SERVICE_DETAIL_LINK_SELECTORS = {
         '.room-card a[href]',
         '.property-card a[href]',
     ],
+    "carsensor": [
+        'a[href*="/usedcar/detail/"]',
+        '.cassetteitem a[href*="/usedcar/detail/"]',
+        '.car-card a[href*="/detail/"]',
+        'a[href*="/usedcar/detail/VU"]',
+        '.list_item a[href*="/detail/"]',
+    ],
+    "goo-net": [
+        'a[href*="/usedcar/detail/"]',
+        'a[href*="/usedcar/spread/"]',
+        '.car-card a[href*="/detail/"]',
+        '.list-item a[href*="/detail/"]',
+        'a[href*="/usedcar/detail/7"]',
+    ],
 }
 
 # URL patterns that indicate a property detail page (not list, not top)
@@ -55,6 +69,16 @@ DETAIL_URL_PATTERNS = {
         r"/room/[a-zA-Z0-9\-]+",
         r"/property/[a-zA-Z0-9\-]+",
     ],
+    "carsensor": [
+        r"/usedcar/detail/[A-Z0-9]+/",
+        r"/usedcar/detail/VU\d+",
+        r"/usedcar/detail/[A-Z]{2}\d+/index\.html",
+    ],
+    "goo-net": [
+        r"/usedcar/detail/\d+/",
+        r"/usedcar/detail/7\d+",
+        r"/usedcar/spread/goo/\d+/\d+\.html",
+    ],
 }
 
 
@@ -67,6 +91,10 @@ def _identify_service(url: str) -> Optional[str]:
         return "athome"
     elif "canary" in domain or "カナリー" in domain:
         return "canary"
+    elif "carsensor" in domain:
+        return "carsensor"
+    elif "goo-net" in domain:
+        return "goo-net"
     return None
 
 
