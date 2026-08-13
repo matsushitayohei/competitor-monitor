@@ -136,6 +136,7 @@ export function PageFormModal({ isOpen, onClose, onSuccess, serviceId, page }: P
               <option value="detail">物件詳細</option>
               <option value="search">条件設定</option>
               <option value="form">フォーム</option>
+              <option value="visit_booking">見学予約フォーム</option>
             </select>
             {errors.pageType && <p className="mt-1 text-xs text-red-600">{errors.pageType}</p>}
           </div>

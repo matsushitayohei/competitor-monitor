@@ -80,6 +80,7 @@ export function ServicePagesSection({ serviceId, pages, onRefresh }: ServicePage
       case "detail": return "物件詳細";
       case "search": return "条件設定";
       case "form": return "フォーム";
+      case "visit_booking": return "見学予約フォーム";
       default: return type;
     }
   };
