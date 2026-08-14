@@ -54,3 +54,20 @@ LIFULL HOME'Sへの適用をAIがアドバイスするモニタリングシス�
   - HTTP 200 だが「掲載終了」表示の場合 → HTML内のキーワードで検出し、一覧から新URL取得
   - 検知パターンは expired_detector.py で各サービス別に定義
   - 切替成功/失敗をSlackに通知
+
+## 監視サービス追加時のチェックリスト
+
+新しいサービスを追加する際は、以下を必ず実施すること:
+
+1. **サービス登録** (DB): name, displayName, baseUrl を設定
+2. **監視ページ登録** (DB): 一覧ページ + 詳細ページを PC/SP で登録
+   - URLは実際のサイトにアクセスして正しいことを確認する
+   - PC/SPでURLが異なる場合は別々に登録、同じならdevice違いで同一URL
+3. **掲載切れ自動対応** (Python):
+   - `expired_detector.py`: サービス固有の掲載終了パターンを定義
+   - `url_fallback.py`: 
+     - `SERVICE_DETAIL_LINK_SELECTORS`: 一覧ページから詳細リンクを取得するCSSセレクタ
+     - `DETAIL_URL_PATTERNS`: 詳細ページURLの正規表現パターン
+     - `_identify_service()`: ドメイン→サービス名のマッピング追加
+4. **コミット & デプロイ**: 変更をpush（Vercel自動デプロイ）
+

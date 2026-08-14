@@ -49,6 +49,32 @@ SERVICE_DETAIL_LINK_SELECTORS = {
         '.list-item a[href*="/detail/"]',
         'a[href*="/usedcar/detail/7"]',
     ],
+    "eheya": [
+        'a[href*="/detail/"]',
+        'a[href*="/line/detail/"]',
+        '.property-item a[href]',
+        '.room-item a[href*="/detail/"]',
+    ],
+    "sumaity": [
+        'a[href*="_bldg/bldg_"]',
+        'a[href*="/chintai/"][href*="_bldg/"]',
+        '.property-item a[href]',
+    ],
+    "smocca": [
+        'a[href*="/detail/"]',
+        '.property-item a[href*="/detail/"]',
+        '.room-card a[href]',
+    ],
+    "door": [
+        'a[href*="/detail/"]',
+        '.property-list a[href*="/detail/"]',
+        '.room-card a[href]',
+    ],
+    "airdoor": [
+        'a[href*="/rent/"]',
+        '.property-card a[href]',
+        'a[href*="/room/"]',
+    ],
 }
 
 # URL patterns that indicate a property detail page (not list, not top)
@@ -79,6 +105,26 @@ DETAIL_URL_PATTERNS = {
         r"/usedcar/detail/7\d+",
         r"/usedcar/spread/goo/\d+/\d+\.html",
     ],
+    "eheya": [
+        r"/line/detail/\d+",
+        r"/detail/\d+",
+    ],
+    "sumaity": [
+        r"_bldg/bldg_\d+",
+        r"/chintai/[a-z]+_bldg/bldg_\d+",
+    ],
+    "smocca": [
+        r"/[a-z]+/detail/\d+",
+        r"/detail/\d+",
+    ],
+    "door": [
+        r"/[a-z]+/city-\d+/detail/\d+",
+        r"/detail/\d+",
+    ],
+    "airdoor": [
+        r"/rent/[a-z]+/[a-z]+",
+        r"/room/[a-zA-Z0-9\-]+",
+    ],
 }
 
 
@@ -95,6 +141,18 @@ def _identify_service(url: str) -> Optional[str]:
         return "carsensor"
     elif "goo-net" in domain:
         return "goo-net"
+    elif "eheya" in domain:
+        return "eheya"
+    elif "sumaity" in domain:
+        return "sumaity"
+    elif "smocca" in domain:
+        return "smocca"
+    elif "door.ac" in domain:
+        return "door"
+    elif "ietty" in domain:
+        return "ietty"
+    elif "airdoor" in domain:
+        return "airdoor"
     return None
 
 
