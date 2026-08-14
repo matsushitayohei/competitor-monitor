@@ -6,6 +6,7 @@ import { useToast } from "@/components/toast";
 import { ServiceFormModal } from "@/components/service-form-modal";
 import { DeleteConfirmDialog } from "@/components/delete-confirm-dialog";
 import { ServicePagesSection } from "@/components/service-pages-section";
+import { SERVICE_CATEGORIES } from "@/lib/validations";
 
 interface MonitoredPage {
   id: string;
@@ -21,6 +22,7 @@ interface Service {
   name: string;
   displayName: string;
   baseUrl: string;
+  category: string;
   isActive: boolean;
   pages: MonitoredPage[];
   _count: { pages: number };
@@ -30,6 +32,11 @@ interface ServiceCardListProps {
   services: Service[];
 }
 
+const CATEGORY_TABS = [
+  { value: "all", label: "すべて" },
+  ...SERVICE_CATEGORIES,
+] as const;
+
 export function ServiceCardList({ services }: ServiceCardListProps) {
   const router = useRouter();
   const { showToast } = useToast();
@@ -38,6 +45,11 @@ export function ServiceCardList({ services }: ServiceCardListProps) {
   const [deletingService, setDeletingService] = useState<Service | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [expandedServiceId, setExpandedServiceId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<string>("all");
+
+  const filteredServices = activeTab === "all"
+    ? services
+    : services.filter((s) => s.category === activeTab);
 
   const handleServiceSuccess = () => {
     showToast(editingService ? "サービスを更新しました" : "サービスを登録しました", "success");
@@ -81,8 +93,31 @@ export function ServiceCardList({ services }: ServiceCardListProps) {
         </button>
       </div>
 
+      {/* Category tabs */}
+      <div className="flex gap-1 mb-6 border-b border-gray-200">
+        {CATEGORY_TABS.map((tab) => {
+          const count = tab.value === "all"
+            ? services.length
+            : services.filter((s) => s.category === tab.value).length;
+          return (
+            <button
+              key={tab.value}
+              onClick={() => setActiveTab(tab.value)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === tab.value
+                  ? "border-blue-600 text-blue-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              }`}
+            >
+              {tab.label}
+              <span className="ml-1.5 text-xs text-gray-400">({count})</span>
+            </button>
+          );
+        })}
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {services.map((service) => (
+        {filteredServices.map((service) => (
           <div key={service.id} className="bg-white p-6 rounded-lg border border-gray-200">
             <div className="flex items-center justify-between mb-4">
               <h2
@@ -112,6 +147,15 @@ export function ServiceCardList({ services }: ServiceCardListProps) {
               </div>
             </div>
             <p className="text-sm text-gray-500 mb-2">{service.baseUrl}</p>
+            <div className="flex items-center gap-2 mb-2">
+              <span className={`px-2 py-0.5 text-xs rounded-full ${
+                service.category === "real_estate"
+                  ? "bg-indigo-100 text-indigo-700"
+                  : "bg-amber-100 text-amber-700"
+              }`}>
+                {SERVICE_CATEGORIES.find((c) => c.value === service.category)?.label || "不動産"}
+              </span>
+            </div>
             <p
               className="text-sm text-gray-600 cursor-pointer hover:text-blue-600"
               onClick={() => toggleExpand(service.id)}
@@ -130,9 +174,11 @@ export function ServiceCardList({ services }: ServiceCardListProps) {
         ))}
       </div>
 
-      {services.length === 0 && (
+      {filteredServices.length === 0 && (
         <div className="text-center py-12 text-gray-500">
-          監視対象のサービスがまだ登録されていません。
+          {activeTab === "all"
+            ? "監視対象のサービスがまだ登録されていません。"
+            : `このカテゴリのサービスはまだ登録されていません。`}
         </div>
       )}
 

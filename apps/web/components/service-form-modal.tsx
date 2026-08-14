@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { validateServiceInput } from "@/lib/validations";
+import { validateServiceInput, SERVICE_CATEGORIES } from "@/lib/validations";
 
 interface Service {
   id: string;
   name: string;
   displayName: string;
   baseUrl: string;
+  category: string;
   isActive: boolean;
 }
 
@@ -22,6 +23,7 @@ export function ServiceFormModal({ isOpen, onClose, onSuccess, service }: Servic
   const [name, setName] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
+  const [category, setCategory] = useState("real_estate");
   const [isActive, setIsActive] = useState(true);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -34,11 +36,13 @@ export function ServiceFormModal({ isOpen, onClose, onSuccess, service }: Servic
       setName(service.name);
       setDisplayName(service.displayName);
       setBaseUrl(service.baseUrl);
+      setCategory(service.category || "real_estate");
       setIsActive(service.isActive);
     } else {
       setName("");
       setDisplayName("");
       setBaseUrl("");
+      setCategory("real_estate");
       setIsActive(true);
     }
     setErrors({});
@@ -49,7 +53,7 @@ export function ServiceFormModal({ isOpen, onClose, onSuccess, service }: Servic
     e.preventDefault();
     setApiError("");
 
-    const data = { name, displayName, baseUrl };
+    const data = { name, displayName, baseUrl, category };
     const validation = validateServiceInput(data);
     if (!validation.valid) {
       setErrors(validation.fields);
@@ -64,7 +68,7 @@ export function ServiceFormModal({ isOpen, onClose, onSuccess, service }: Servic
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, displayName, baseUrl, isActive }),
+        body: JSON.stringify({ name, displayName, baseUrl, category, isActive }),
       });
 
       if (!res.ok) {
@@ -144,6 +148,20 @@ export function ServiceFormModal({ isOpen, onClose, onSuccess, service }: Servic
               placeholder="https://suumo.jp"
             />
             {errors.baseUrl && <p className="mt-1 text-xs text-red-600">{errors.baseUrl}</p>}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">カテゴリ</label>
+            <select
+              value={category}
+              onChange={(e) => { setCategory(e.target.value); clearFieldError("category"); }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {SERVICE_CATEGORIES.map((cat) => (
+                <option key={cat.value} value={cat.value}>{cat.label}</option>
+              ))}
+            </select>
+            {errors.category && <p className="mt-1 text-xs text-red-600">{errors.category}</p>}
           </div>
 
           <div className="flex items-center gap-2">

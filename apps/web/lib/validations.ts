@@ -13,10 +13,18 @@ export function isValidUrl(url: string): boolean {
   }
 }
 
+export const SERVICE_CATEGORIES = [
+  { value: "real_estate", label: "不動産" },
+  { value: "other", label: "他業種" },
+] as const;
+
+export type ServiceCategory = typeof SERVICE_CATEGORIES[number]["value"];
+
 export function validateServiceInput(data: {
   name?: string;
   displayName?: string;
   baseUrl?: string;
+  category?: string;
 }, options?: { partial?: boolean }): ValidationResult {
   const fields: Record<string, string> = {};
   const partial = options?.partial ?? false;
@@ -47,6 +55,16 @@ export function validateServiceInput(data: {
       fields.baseUrl = 'URLを入力してください';
     } else if (!isValidUrl(data.baseUrl)) {
       fields.baseUrl = '有効なURL形式で入力してください';
+    }
+  }
+
+  // category validation
+  if (!partial || data.category !== undefined) {
+    if (data.category !== undefined) {
+      const validCategories = SERVICE_CATEGORIES.map(c => c.value);
+      if (!validCategories.includes(data.category as ServiceCategory)) {
+        fields.category = 'カテゴリを選択してください';
+      }
     }
   }
 

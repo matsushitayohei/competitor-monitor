@@ -60,6 +60,7 @@ export async function PUT(
           displayName: data.displayName,
         }),
         ...(data.baseUrl !== undefined && { baseUrl: data.baseUrl }),
+        ...(data.category !== undefined && { category: data.category }),
         ...(data.isActive !== undefined && { isActive: data.isActive }),
       },
     });

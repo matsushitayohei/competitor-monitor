@@ -1,13 +1,13 @@
 {
   "enabled": true,
   "name": "競合変更を自動分析",
-  "description": "Kiroセッション開始時に、MCP Server経由で未分析の競合変更を取得し、DOM差分を読んでHOME'Sへのアドバイスを自動生成してDBに保存します。",
-  "version": "1",
+  "description": "Kiroセッション開始時に、MCP Server経由で未分析の競合変更を取得し、DOM差分を読んでHOME'Sへのアドバイスを自動生成してDBに保存します。ノイズは自動スキップし、有意な変更のみGDO/Amplitudeを参照して分析します。",
+  "version": "2",
   "when": {
-    "type": "promptSubmit"
+    "type": "userTriggered"
   },
   "then": {
     "type": "askAgent",
-    "prompt": "competitor-monitor MCPサーバーの get_unanalyzed_changes ツールを呼び出して、未分析の競合変更があるか確認してください。変更がある場合は、各変更について get_change_diff で差分を取得し、以下の観点で分析して save_kiro_advice で保存してください:\n- summary: 何が変わったか(1-2文)\n- intent: なぜこの変更をしたと考えられるか\n- proposal: LIFULL HOME'Sがどう取り入れるべきか\n- priority: high/medium/low\n- expected_effect: 導入した場合の期待効果\n- risks: リスクや懸念点\n変更がない場合は何もせず続行してください。"
+    "prompt": "competitor-monitor MCPサーバーの get_unanalyzed_changes ツールを呼び出して、未分析の競合変更があるか確認してください。\n\n## ノイズ判定（最優先）\n以下に該当する変更は「ノイズ」と判断し、save_kiro_advice で priority='low', summary='誤検知: [理由]', intent='ノイズ', proposal='対応不要' として保存し、次の変更へ進んでください:\n- CSRFトークン（input[type=hidden]のvalue変動、特にtbi4dbsフィールド）\n- Next.jsビルドハッシュ（/_next/static/chunks/ のファイル名変動のみ）\n- トラッキングピクセルのセッションID/ランダム値の変動\n- base64エンコードされた画像データの差異\n- link[rel=preconnect]やlink[rel=prefetch]のURL順序変更のみ\n- 物件固有情報（価格、住所、築年数等）の変動のみ\n\n## 有意な変更の分析\nノイズでない変更を検出した場合、以下のステップで分析してください:\n\n### Step 1: 変更の本質を特定\ndiffTextから、実際のUI/UX変更（新要素追加、レイアウト変更、機能追加/削除、テキスト変更、デザイン変更）を端的に特定する。\n\n### Step 2: HOME'Sの現状を確認（可能な場合）\n- mcp_gdo_gdo_list → gdo_sheets_get で「賃貸KGI/KPI」や「賃貸反響サマリ」を参照し、HOME'S賃貸の現在のKPI状況を把握する（認証エラーの場合はスキップ可）\n- mcp_amplitude の search や query_dataset で、該当する機能領域のユーザー行動データを確認する（例: 検索結果ページの変更なら、HOME'Sの検索CVRを確認）\n\n### Step 3: アドバイスを生成\n以下の形式で save_kiro_advice を実行:\n- summary: 1-2文で変更の本質を端的に（技術的詳細ではなくビジネスインパクト視点で）\n- intent: 競合がなぜこの変更をしたか（CRO/SEO/UX改善/広告商品強化等の観点）\n- proposal: HOME'Sが取り入れるべき具体的アクション（「〇〇ページで△△を実装」レベル）\n- priority: high=すぐ検討すべき / medium=四半期内に検討 / low=参考情報\n  - priorityの判断基準: HOME'SのKPIへの影響度 × 実装コスト × 競合での効果見込み\n- expected_effect: KPIへの期待効果（可能ならGDO/Amplitudeの数値を引用）\n- risks: 導入リスクや注意点\n\n## 出力ルール\n- 変更がない場合は何もせず続行\n- 全てノイズだった場合は「未分析の変更を確認しましたが、全てノイズ（CSRFトークン/ビルドハッシュの変動）のため対応不要です」と1行で報告\n- 有意な変更があった場合のみ、分析結果のサマリを報告"
   }
 }

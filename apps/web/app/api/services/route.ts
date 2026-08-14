@@ -45,6 +45,7 @@ export async function POST(request: NextRequest) {
         name: data.name,
         displayName: data.displayName,
         baseUrl: data.baseUrl,
+        category: data.category || "real_estate",
         isActive: data.isActive ?? true,
       },
     });

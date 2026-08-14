@@ -12,11 +12,14 @@ model Service {
   name        String   @unique
   displayName String
   baseUrl     String
+  category    String   @default("real_estate")
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   deletedAt   DateTime?
   pages       MonitoredPage[]
+
+  @@index([category])
 }
 
 model MonitoredPage {
