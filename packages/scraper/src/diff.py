@@ -75,6 +75,7 @@ def extract_structure(html: str, exclude_selectors: Optional[list] = None) -> st
     - Removes property-specific elements (prices, addresses, etc.)
     - Replaces text content with [TEXT] placeholder
     - Normalizes dynamic attributes (CSRF tokens, build hashes, tracking IDs)
+    - Appends a normalization version marker for compatibility detection
     """
     soup = BeautifulSoup(html, 'lxml')
 
@@ -109,7 +110,14 @@ def extract_structure(html: str, exclude_selectors: Optional[list] = None) -> st
             else:
                 text_node.replace_with('[TEXT]')
 
-    return str(soup)
+    # Append normalization version marker for future compatibility detection
+    result = str(soup)
+    result += "\n<!-- NORM_V2 -->"
+    return result
+
+
+# Normalization version marker used to detect snapshots saved with current logic
+NORM_VERSION_MARKER = "<!-- NORM_V2 -->"
 
 
 # Tags whose text content is CRO-significant and should be preserved for diff

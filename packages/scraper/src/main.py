@@ -17,7 +17,7 @@ load_dotenv()
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "analyzer", "src"))
 
 from capture import capture_page
-from diff import extract_structure, compute_diff
+from diff import extract_structure, compute_diff, NORM_VERSION_MARKER
 from db import (
     get_active_pages,
     get_latest_snapshot,
@@ -151,11 +151,11 @@ async def scan_page(page_info: dict) -> dict:
 
         # 5.6. Re-normalize previous structure if it was saved with old logic
         # (handles transition period after diff.py normalization improvements)
-        if prev_structure and '[HIDDEN_VALUE]' not in prev_structure:
-            # Previous snapshot was saved without attribute normalization
-            # Re-extract from raw HTML is not possible (we only saved the processed structure)
-            # Skip this comparison and treat as baseline reset
-            print(f"    ⚠️ Previous snapshot uses old normalization format - treating as baseline reset")
+        if prev_structure and NORM_VERSION_MARKER not in prev_structure:
+            # Previous snapshot was saved without current normalization version
+            # The new snapshot has already been saved (step 4) with current normalization,
+            # so next run will have a valid comparison baseline. Skip this comparison only.
+            print(f"    ⚠️ Previous snapshot uses old normalization format - treating as baseline reset (next run will compare normally)")
             result["status"] = "baseline_reset"
             return result
 
