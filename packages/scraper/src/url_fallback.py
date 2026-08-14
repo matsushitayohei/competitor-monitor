@@ -61,9 +61,9 @@ SERVICE_DETAIL_LINK_SELECTORS = {
         '.property-item a[href]',
     ],
     "smocca": [
-        'a[href*="/detail/"]',
-        '.property-item a[href*="/detail/"]',
-        '.room-card a[href]',
+        'a[href*="/bukken/detail/"]',
+        '.property-item a[href*="/bukken/detail/"]',
+        '.room-card a[href*="/bukken/"]',
     ],
     "door": [
         'a[href*="/detail/"]',
@@ -71,9 +71,9 @@ SERVICE_DETAIL_LINK_SELECTORS = {
         '.room-card a[href]',
     ],
     "airdoor": [
-        'a[href*="/rent/"]',
-        '.property-card a[href]',
-        'a[href*="/room/"]',
+        'a[href*="/detail/"]',
+        '.property-card a[href*="/detail/"]',
+        'a[href*="/detail/"][href*="/"]',
     ],
 }
 
@@ -114,16 +114,14 @@ DETAIL_URL_PATTERNS = {
         r"/chintai/[a-z]+_bldg/bldg_\d+",
     ],
     "smocca": [
-        r"/[a-z]+/detail/\d+",
-        r"/detail/\d+",
+        r"/bukken/detail/[a-z0-9_]+",
     ],
     "door": [
         r"/[a-z]+/city-\d+/detail/\d+",
         r"/detail/\d+",
     ],
     "airdoor": [
-        r"/rent/[a-z]+/[a-z]+",
-        r"/room/[a-zA-Z0-9\-]+",
+        r"/detail/\d+/\d+",
     ],
 }
 
