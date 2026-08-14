@@ -10,13 +10,13 @@ LIFULL HOME'Sへの適用をAIがアドバイスするモニタリングシス�
 - フロントエンド: Next.js 14+ (App Router, TypeScript, Tailwind CSS)
 - バックエンド: Next.js API Routes
 - スクレイピング: Python + Playwright
-- DB: Supabase (PostgreSQL)
-- 画像保存: Supabase Storage
+- DB: Neon PostgreSQL (Vercel Storage 統合)
+- 画像保存: Vercel Blob Storage
 - スケジューラ: GitHub Actions (毎日 JST 6:00)
 - ホスティング: Vercel
 - 通知: Slack Incoming Webhook
 - AI分析: ルールベース分類（自動） + Kiro分析（MCP経由、オンデマンド）
-- 認証: Supabase Auth (Google OAuth, @lifull.com ドメイン制限)
+- 認証: NextAuth.js (Google OAuth, @lifull.com ドメイン制限)
 - MCP連携: TypeScript MCP Server
 
 ## コーディング規約
@@ -31,10 +31,12 @@ LIFULL HOME'Sへの適用をAIがアドバイスするモニタリングシス�
 
 ## DB設計方針
 
-- Supabase の RLS (Row Level Security) を有効化
-- テーブル名は snake_case
+- Neon PostgreSQL (Vercel Storage 統合、本番は neon-aquamarine-magnet)
+- Prisma ORM でスキーマ管理
+- マイグレーションは Neon の Query タブまたは psql で手動実行
+- テーブル名は PascalCase (Prisma デフォルト)
 - タイムスタンプは全て UTC で保存、表示時に JST 変換
-- ソフトデリート（deleted_at カラム）
+- ソフトデリート（deletedAt カラム）
 
 ## データ保持方針
 
