@@ -147,6 +147,7 @@ class PressSourceParser(ABC):
         - 2025.01.15
         - 2025/01/15
         - 2025-01-15
+        - 2025-01-15T00:00:00+09:00 (ISO datetime)
 
         Returns:
             ISO date string (YYYY-MM-DD) or None if parsing fails.
@@ -174,11 +175,101 @@ class PressSourceParser(ABC):
             year, month, day = match.groups()
             return f"{year}-{int(month):02d}-{int(day):02d}"
 
-        # Pattern: 2025-01-15
+        # Pattern: 2025-01-15 (also matches start of ISO datetime like 2025-01-15T...)
         match = re.search(r"(\d{4})-(\d{1,2})-(\d{1,2})", date_text)
         if match:
             year, month, day = match.groups()
             return f"{year}-{int(month):02d}-{int(day):02d}"
+
+        return None
+
+    def _extract_date_from_article_page(self, html: str) -> Optional[str]:
+        """Extract published date from an individual article page.
+
+        Tries multiple strategies:
+        1. JSON-LD structured data (datePublished)
+        2. <meta> tags (article:published_time, etc.)
+        3. <time> elements with datetime attribute
+        4. Date patterns in page text near the title
+
+        Returns:
+            ISO date string (YYYY-MM-DD) or None.
+        """
+        import json as _json
+
+        soup = BeautifulSoup(html, "lxml")
+
+        # Strategy 1: JSON-LD structured data
+        for script in soup.find_all("script", type="application/ld+json"):
+            try:
+                data = _json.loads(script.string or "")
+                # Handle both single object and array
+                items = data if isinstance(data, list) else [data]
+                for item in items:
+                    date_val = item.get("datePublished") or item.get("dateCreated")
+                    if date_val:
+                        parsed = self._parse_date_text(str(date_val))
+                        if parsed:
+                            return parsed
+            except (ValueError, TypeError, AttributeError):
+                continue
+
+        # Strategy 2: meta tags
+        meta_properties = [
+            "article:published_time",
+            "og:article:published_time",
+            "article:modified_time",
+            "pubdate",
+            "date",
+            "DC.date.issued",
+        ]
+        for prop in meta_properties:
+            meta = soup.find("meta", attrs={"property": prop}) or soup.find(
+                "meta", attrs={"name": prop}
+            )
+            if meta:
+                content = meta.get("content", "")
+                if content:
+                    parsed = self._parse_date_text(str(content))
+                    if parsed:
+                        return parsed
+
+        # Strategy 3: <time> elements
+        for time_elem in soup.find_all("time"):
+            datetime_attr = time_elem.get("datetime", "")
+            if datetime_attr:
+                parsed = self._parse_date_text(str(datetime_attr))
+                if parsed:
+                    return parsed
+            # Try text content of time element
+            time_text = time_elem.get_text()
+            if time_text:
+                parsed = self._parse_date_text(time_text)
+                if parsed:
+                    return parsed
+
+        # Strategy 4: Common date containers near the top of page
+        date_selectors = [
+            ".date", ".post-date", ".entry-date", ".article-date",
+            ".news-date", ".newsDate", ".publish-date", ".published",
+            "[class*=date]", "[class*=Date]",
+        ]
+        for selector in date_selectors:
+            for elem in soup.select(selector)[:3]:  # check top 3 matches
+                text = elem.get_text()
+                parsed = self._parse_date_text(text)
+                if parsed:
+                    return parsed
+
+        # Strategy 5: Date pattern in text within header/top area
+        header_area = soup.find("header") or soup.find("article")
+        if header_area:
+            text = header_area.get_text()
+            match = re.search(
+                r"\d{4}[年./\-]\d{1,2}[月./\-]\d{1,2}日?", text
+            )
+            if match:
+                return self._parse_date_text(match.group(0))
 
         return None
 
