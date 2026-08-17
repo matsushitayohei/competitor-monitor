@@ -17,6 +17,7 @@ interface PressArticle {
   classification: string | null;
   relevanceCategory: string | null;
   summary: string | null;
+  bodyText: string | null;
   source: {
     id: string;
     name: string;
@@ -101,6 +102,7 @@ export default function PressArticlesPage() {
   });
   const [sources, setSources] = useState<PressSource[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedArticle, setSelectedArticle] = useState<PressArticle | null>(null);
 
   // Filter state
   const [sourceId, setSourceId] = useState("");
@@ -254,7 +256,11 @@ export default function PressArticlesPage() {
                 </thead>
                 <tbody>
                   {articles.map((article) => (
-                    <tr key={article.id} className="border-b border-gray-100 hover:bg-gray-50">
+                    <tr
+                      key={article.id}
+                      className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
+                      onClick={() => setSelectedArticle(article)}
+                    >
                       <td className="py-3 px-4">
                         <a
                           href={article.articleUrl}
@@ -262,6 +268,7 @@ export default function PressArticlesPage() {
                           rel="noopener noreferrer"
                           className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
                           title={article.title}
+                          onClick={(e) => e.stopPropagation()}
                         >
                           {truncateTitle(article.title)}
                         </a>
@@ -311,6 +318,77 @@ export default function PressArticlesPage() {
             )}
           </>
         )}
+      {/* Article Detail Modal */}
+      {selectedArticle && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => setSelectedArticle(null)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] overflow-y-auto mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-start justify-between">
+              <div className="flex-1 min-w-0 pr-4">
+                <h2 className="text-lg font-semibold text-gray-900 leading-snug">
+                  {selectedArticle.title}
+                </h2>
+                <div className="flex flex-wrap items-center gap-2 mt-2">
+                  <span className="text-sm text-gray-500">{selectedArticle.source.name}</span>
+                  <span className="text-sm text-gray-400">·</span>
+                  <span className="text-sm text-gray-500">{formatDate(selectedArticle.publishedAt)}</span>
+                  <ClassificationBadge classification={selectedArticle.classification} />
+                  <CategoryBadge category={selectedArticle.relevanceCategory} />
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedArticle(null)}
+                className="text-gray-400 hover:text-gray-600 p-1 -mr-1 -mt-1"
+                aria-label="閉じる"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="px-6 py-4 space-y-4">
+              {/* Summary */}
+              <div>
+                <h3 className="text-sm font-medium text-gray-700 mb-1">要約</h3>
+                <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
+                  {selectedArticle.summary || "要約なし"}
+                </p>
+              </div>
+
+              {/* Body Text (if available) */}
+              {selectedArticle.bodyText && (
+                <div>
+                  <h3 className="text-sm font-medium text-gray-700 mb-1">本文</h3>
+                  <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto bg-gray-50 p-3 rounded">
+                    {selectedArticle.bodyText}
+                  </p>
+                </div>
+              )}
+
+              {/* Link */}
+              <div>
+                <a
+                  href={selectedArticle.articleUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                >
+                  元記事を開く
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

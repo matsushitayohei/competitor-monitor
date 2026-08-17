@@ -6,13 +6,15 @@ interface ScreenshotImageProps {
   src: string;
   alt: string;
   label: string;
+  height?: string;
+  objectFit?: string;
 }
 
 function getProxyUrl(originalUrl: string): string {
   return `/api/screenshots?url=${encodeURIComponent(originalUrl)}`;
 }
 
-export function ScreenshotImage({ src, alt, label }: ScreenshotImageProps) {
+export function ScreenshotImage({ src, alt, label, height = "h-48", objectFit = "object-cover object-top" }: ScreenshotImageProps) {
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -24,8 +26,8 @@ export function ScreenshotImage({ src, alt, label }: ScreenshotImageProps) {
   if (error) {
     return (
       <div>
-        <p className="text-xs font-medium text-gray-500 mb-1">{label}</p>
-        <div className="w-full h-48 rounded border border-gray-200 bg-gray-50 flex items-center justify-center">
+        {label && <p className="text-xs font-medium text-gray-500 mb-1">{label}</p>}
+        <div className={`w-full ${height} rounded border border-gray-200 bg-gray-50 flex items-center justify-center`}>
           <div className="text-center text-gray-400">
             <svg
               className="mx-auto h-8 w-8 mb-1"
@@ -49,15 +51,15 @@ export function ScreenshotImage({ src, alt, label }: ScreenshotImageProps) {
 
   return (
     <div>
-      <p className="text-xs font-medium text-gray-500 mb-1">{label}</p>
-      <a href={imageSrc} target="_blank" rel="noopener noreferrer">
+      {label && <p className="text-xs font-medium text-gray-500 mb-1">{label}</p>}
+      <div>
         {loading && (
-          <div className="w-full h-48 rounded border border-gray-200 bg-gray-100 animate-pulse" />
+          <div className={`w-full ${height} rounded border border-gray-200 bg-gray-100 animate-pulse`} />
         )}
         <img
           src={imageSrc}
           alt={alt}
-          className={`w-full h-48 object-cover object-top rounded border border-gray-200 hover:opacity-80 transition-opacity ${
+          className={`w-full ${height} ${objectFit} rounded border border-gray-200 ${
             loading ? "hidden" : ""
           }`}
           onLoad={() => setLoading(false)}
@@ -66,7 +68,7 @@ export function ScreenshotImage({ src, alt, label }: ScreenshotImageProps) {
             setLoading(false);
           }}
         />
-      </a>
+      </div>
     </div>
   );
 }

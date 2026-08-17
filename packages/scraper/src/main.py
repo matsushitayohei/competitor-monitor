@@ -271,7 +271,9 @@ async def scan_page(page_info: dict) -> dict:
         # 8. Save change to DB (with before/after screenshots)
         before_screenshot_path = prev_snapshot.get("screenshotPath") if prev_snapshot else None
 
-        # 8.5 Generate visual diff image if both screenshots are available
+        # 8.5 Generate visual diff image (only for clear structural changes)
+        # The visual_diff module returns None for noisy/scattered changes,
+        # so the system falls back to text-based summary in the UI.
         visual_diff_path = None
         if before_screenshot_path and screenshot_path:
             try:
@@ -279,11 +281,16 @@ async def scan_page(page_info: dict) -> dict:
                 # Download before screenshot for comparison
                 before_response = _httpx.get(before_screenshot_path, timeout=30)
                 if before_response.status_code == 200:
-                    diff_image_bytes = generate_visual_diff(before_response.content, screenshot_bytes)
+                    diff_image_bytes = generate_visual_diff(
+                        before_response.content,
+                        screenshot_bytes,
+                    )
                     if diff_image_bytes:
                         visual_diff_path = upload_screenshot(diff_image_bytes, f"{page_id}/diff", device)
                         if visual_diff_path:
-                            print(f"    Visual diff generated and uploaded")
+                            print(f"    Visual diff generated (clear structural change detected)")
+                    else:
+                        print(f"    Visual diff skipped (no clear structural changes, relying on text summary)")
             except Exception as e:
                 print(f"    Visual diff generation failed: {e}")
 

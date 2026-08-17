@@ -286,6 +286,9 @@ def _extract_components(section_tag: Tag) -> list[dict]:
     comp_index = 0
     MAX_COMPONENTS = 200
 
+    # Limit component extraction to avoid excessive processing on large pages
+    MAX_COMPONENTS = 200
+
     # Process all descendant elements
     for tag in section_tag.find_all(True):
         if tag.name in _SKIP_TAGS:

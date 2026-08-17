@@ -1,6 +1,6 @@
 ﻿import { prisma } from "@/lib/prisma";
 import { Sidebar } from "@/components/sidebar";
-import { ScreenshotImage } from "@/components/screenshot-image";
+import { ChangeCard } from "@/components/change-card";
 import Link from "next/link";
 
 export const dynamic = 'force-dynamic';
@@ -135,123 +135,17 @@ export default async function ChangesPage({
         ) : (
           <div className="space-y-4">
             {changes.map((change) => (
-              <div key={change.id} className="bg-white p-6 rounded-lg border border-gray-200">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-gray-900">
-                      {change.page.service.displayName}
-                    </span>
-                    <span className="text-sm text-gray-500">
-                      {change.pageType === "list" ? "物件一覧" : "物件詳細"}
-                    </span>
-                    {!change.isReviewed && (
-                      <span className="px-1.5 py-0.5 text-xs rounded bg-green-100 text-green-800">
-                        NEW
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {change.category && (
-                      <span className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
-                        {change.category}
-                      </span>
-                    )}
-                    <span className="text-xs text-gray-400">
-                      {change.detectedAt.toLocaleDateString("ja-JP")}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Target URL */}
-                <div className="mb-2">
-                  <a
-                    href={change.page.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-blue-600 hover:underline break-all"
-                  >
-                    {change.page.url}
-                  </a>
-                </div>
-
-                {change.summary && (
-                  <p className="text-sm text-gray-700 mb-3">{change.summary}</p>
-                )}
-
-                {/* Before/After Screenshots */}
-                {(change.beforeScreenshotPath || change.afterScreenshotPath) && (
-                  <div className="mt-3 grid grid-cols-2 gap-3">
-                    {change.beforeScreenshotPath && (
-                      <ScreenshotImage
-                        src={change.beforeScreenshotPath}
-                        alt="Before screenshot"
-                        label="Before"
-                      />
-                    )}
-                    {change.afterScreenshotPath && (
-                      <ScreenshotImage
-                        src={change.afterScreenshotPath}
-                        alt="After screenshot"
-                        label="After"
-                      />
-                    )}
-                  </div>
-                )}
-
-                {/* Visual Diff */}
-                {change.visualDiffPath && (
-                  <div className="mt-3">
-                    <ScreenshotImage
-                      src={change.visualDiffPath}
-                      alt="Visual diff"
-                      label="差分ハイライト（赤=変更箇所）"
-                    />
-                  </div>
-                )}
-
-                {/* Diff Text (collapsible) */}
-                {change.diffText && (
-                  <details className="mt-3">
-                    <summary className="text-xs font-medium text-gray-500 cursor-pointer hover:text-gray-700">
-                      DOM差分を表示
-                    </summary>
-                    <pre className="mt-2 p-3 bg-gray-900 text-gray-100 text-xs rounded-lg overflow-x-auto max-h-80 overflow-y-auto whitespace-pre-wrap break-all">
-                      {change.diffText.split("\n").map((line, i) => (
-                        <span
-                          key={i}
-                          className={
-                            line.startsWith("+") && !line.startsWith("+++")
-                              ? "text-green-400"
-                              : line.startsWith("-") && !line.startsWith("---")
-                              ? "text-red-400"
-                              : line.startsWith("@@")
-                              ? "text-cyan-400"
-                              : ""
-                          }
-                        >
-                          {line}{"\n"}
-                        </span>
-                      ))}
-                    </pre>
-                  </details>
-                )}
-
-                {change.advice && (
-                  <div className="mt-3 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
-                    <p className="text-xs font-medium text-yellow-800 mb-1">AIアドバイス</p>
-                    <p className="text-sm text-yellow-900">{change.advice.proposal}</p>
-                    {change.advice.priority && (
-                      <span className={`mt-2 inline-block px-2 py-0.5 text-xs rounded-full ${
-                        change.advice.priority === "high" ? "bg-red-100 text-red-800" :
-                        change.advice.priority === "medium" ? "bg-orange-100 text-orange-800" :
-                        "bg-gray-100 text-gray-600"
-                      }`}>
-                        優先度: {change.advice.priority}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
+              <ChangeCard
+                key={change.id}
+                change={{
+                  ...change,
+                  detectedAt: change.detectedAt.toISOString(),
+                  page: {
+                    ...change.page,
+                    device: change.page.device,
+                  },
+                }}
+              />
             ))}
           </div>
         )}
