@@ -92,6 +92,11 @@ async def notify_press_article(article: dict) -> bool:
     Returns:
         True if notification was sent successfully, False otherwise.
     """
+    # Allow disabling press notifications via environment variable
+    if os.environ.get("PRESS_NOTIFICATIONS_DISABLED", "").lower() in ("1", "true", "yes"):
+        logger.info("Press notifications disabled via PRESS_NOTIFICATIONS_DISABLED env var. Skipping.")
+        return False
+
     webhook_url = get_webhook_url()
     if not webhook_url:
         logger.error(

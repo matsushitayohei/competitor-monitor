@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "@prisma/client": "^5.20.0",
+    "@prisma/client": "file:../../apps/web/node_modules/@prisma/client",
     "dotenv": "^17.4.2",
     "zod": "^3.23.0"
   },
