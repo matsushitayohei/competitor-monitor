@@ -1,5 +1,6 @@
 ﻿import { prisma } from "@/lib/prisma";
 import { Sidebar } from "@/components/sidebar";
+import { BackfillDatesButton } from "@/components/backfill-dates-button";
 
 export const dynamic = 'force-dynamic';
 
@@ -43,6 +44,11 @@ export default async function SettingsPage() {
           <p className="mt-6 text-xs text-gray-400">
             設定の変更機能は次のフェーズで実装予定です。
           </p>
+        </div>
+
+        <div className="mt-8">
+          <h2 className="text-xl font-bold text-gray-900 mb-4">メンテナンス</h2>
+          <BackfillDatesButton />
         </div>
       </main>
     </div>
