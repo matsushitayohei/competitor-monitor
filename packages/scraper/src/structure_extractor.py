@@ -284,6 +284,7 @@ def _extract_components(section_tag: Tag) -> list[dict]:
     """Extract all classifiable components from a section."""
     components = []
     comp_index = 0
+    MAX_COMPONENTS = 200
 
     # Process all descendant elements
     for tag in section_tag.find_all(True):
@@ -295,6 +296,9 @@ def _extract_components(section_tag: Tag) -> list[dict]:
             component["position"] = comp_index
             components.append(component)
             comp_index += 1
+
+            if comp_index >= MAX_COMPONENTS:
+                break
 
     return components
 
