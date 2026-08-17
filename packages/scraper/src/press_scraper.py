@@ -39,8 +39,8 @@ INTER_REQUEST_DELAY = 2.0
 MAX_RETRIES = 2
 
 
-async def fetch_article_body(page: Page, url: str, parser) -> str:
-    """Navigate to an article page and extract body text using the parser.
+async def fetch_article_body(page: Page, url: str, parser) -> tuple[str, str | None]:
+    """Navigate to an article page and extract body text and date using the parser.
 
     Args:
         page: Playwright page instance.
@@ -48,7 +48,8 @@ async def fetch_article_body(page: Page, url: str, parser) -> str:
         parser: Site-specific parser with parse_article_body method.
 
     Returns:
-        Extracted body text string. Returns empty string on failure.
+        Tuple of (body_text, published_at_iso_string_or_None).
+        Returns ("", None) on failure.
     """
     try:
         response = await page.goto(url, wait_until="domcontentloaded", timeout=TIMEOUT_MS)
@@ -56,21 +57,23 @@ async def fetch_article_body(page: Page, url: str, parser) -> str:
             logger.warning(
                 f"HTTP {response.status} when fetching article body: {url}"
             )
-            return ""
+            return ("", None)
 
         # Wait briefly for dynamic content
         await page.wait_for_timeout(2000)
 
         html = await page.content()
         body_text = parser.parse_article_body(html)
-        return body_text
+        # Also try to extract date from the article page
+        published_at = parser._extract_date_from_article_page(html)
+        return (body_text, published_at)
 
     except PlaywrightTimeout:
         logger.warning(f"Timeout fetching article body: {url}")
-        return ""
+        return ("", None)
     except Exception as e:
         logger.warning(f"Error fetching article body {url}: {e}")
-        return ""
+        return ("", None)
 
 
 async def _fetch_source_page(page: Page, source_url: str) -> str:
@@ -209,15 +212,18 @@ async def scrape_press_source(page: Page, source: dict) -> list[dict]:
         # Inter-request delay before fetching article body
         await asyncio.sleep(INTER_REQUEST_DELAY)
 
-        # Fetch article body text
-        body_text = await fetch_article_body(page, article_url, parser)
+        # Fetch article body text and attempt date extraction from article page
+        body_text, page_published_at = await fetch_article_body(page, article_url, parser)
+
+        # Use listing page date if available; otherwise use article page date
+        published_at = article.get("published_at") or page_published_at
 
         # Save new article to database
         article_data = {
             "source_id": source_id,
             "title": article_title,
             "article_url": article_url,
-            "published_at": article.get("published_at"),
+            "published_at": published_at,
             "body_text": body_text,
         }
 
