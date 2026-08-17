@@ -106,7 +106,6 @@ def summarize_change(diff_text: str) -> str:
     if unique_changes:
         # Format as bullet points, limit to 5 items
         result = "\n".join(f"・{c}" for c in unique_changes[:5])
-        total = len(added_lines) + len(removed_lines)
         if len(unique_changes) > 5:
             result += f"\n  他{len(unique_changes) - 5}件の変更"
         return result
@@ -132,7 +131,6 @@ def _extract_text_changes(added_lines: list[str], removed_lines: list[str]) -> l
     changes = []
 
     # Pattern to find preserved text within HTML tags
-    # CRO-significant tags keep their text in the normalized DOM
     text_in_tag_pattern = re.compile(
         r'<(button|a|h[1-6]|label|th|summary|legend)[^>]*>'
         r'(.*?)'
@@ -294,7 +292,7 @@ def _truncate(text: str, max_len: int) -> str:
     """Truncate text to max length with ellipsis."""
     if len(text) <= max_len:
         return text
-    return text[:max_len] + "…"
+    return text[:max_len] + "..."
 
 
 def _detect_elements(text: str) -> Counter:
@@ -305,7 +303,6 @@ def _detect_elements(text: str) -> Counter:
     for keyword in TAG_LABELS:
         count = len(re.findall(r'\b' + re.escape(keyword) + r'\b', text_lower))
         if count == 0:
-            # Also check as class/id pattern
             count = len(re.findall(re.escape(keyword), text_lower))
         if count > 0:
             found[keyword] = count
