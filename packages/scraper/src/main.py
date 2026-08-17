@@ -272,6 +272,7 @@ async def scan_page(page_info: dict) -> dict:
         before_screenshot_path = prev_snapshot.get("screenshotPath") if prev_snapshot else None
 
         # 8.5 Generate visual diff image if both screenshots are available
+        # Uses mask regions to exclude dynamic content (property images, prices, etc.)
         visual_diff_path = None
         if before_screenshot_path and screenshot_path:
             try:
@@ -279,11 +280,19 @@ async def scan_page(page_info: dict) -> dict:
                 # Download before screenshot for comparison
                 before_response = _httpx.get(before_screenshot_path, timeout=30)
                 if before_response.status_code == 200:
-                    diff_image_bytes = generate_visual_diff(before_response.content, screenshot_bytes)
+                    # Get mask regions for dynamic content exclusion
+                    mask_regions = await _get_dynamic_content_masks(url, viewport_width)
+                    diff_image_bytes = generate_visual_diff(
+                        before_response.content,
+                        screenshot_bytes,
+                        mask_regions=mask_regions,
+                    )
                     if diff_image_bytes:
                         visual_diff_path = upload_screenshot(diff_image_bytes, f"{page_id}/diff", device)
                         if visual_diff_path:
-                            print(f"    Visual diff generated and uploaded")
+                            print(f"    Visual diff generated and uploaded ({len(mask_regions or [])} regions masked)")
+                    else:
+                        print(f"    Visual diff: no meaningful visual changes after masking")
             except Exception as e:
                 print(f"    Visual diff generation failed: {e}")
 
@@ -343,6 +352,93 @@ async def _attempt_url_fallback(
         return new_url
 
     return None
+
+
+# CSS selectors for elements whose VISUAL content changes daily (property images,
+# prices, listing items, ad banners) but whose structural presence is not a UI change.
+# These are masked out (filled with gray) before pixel comparison to eliminate noise.
+_VISUAL_MASK_SELECTORS = [
+    # Property-specific content (images, prices, metadata)
+    'img[src*="property"]', 'img[src*="bukken"]', 'img[src*="chintai"]',
+    'img[src*="mansion"]', 'img[src*="room"]',
+    '.property-image', '.bukken-image', '.cassetteitem_detail-img',
+    '.property-photo', '.detail-photo',
+    # Listing items (individual properties in lists rotate daily)
+    '.cassetteitem', '.property-card', '.estate-item',
+    '.cassetteitem_content-body',
+    '.property_unit-content',
+    # Prices (change with market)
+    '.cassetteitem_price', '.property-price', '.bukken-price',
+    '.price', '.detail-price', '[data-property-price]',
+    # Ad banners and promotions
+    '.ad-banner', '.ad-area', '[class*="banner"]', '[class*="adArea"]',
+    '[id*="ad-"]', '[id*="banner"]',
+    'ins.adsbygoogle', 'iframe[src*="ad"]',
+    # Rankings (change daily)
+    '.ranking', '.ranking-position', '[class*="ranking"]',
+    # User-specific content
+    '.recently-viewed', '.recommend-list', '.history-list',
+    # Photo galleries (images rotate)
+    '.photo-gallery', '.slider', '.carousel', '.swiper',
+    '[class*="carousel"]', '[class*="slider"]', '[class*="swiper"]',
+    # Map areas (tiles change)
+    '.map-area', '[class*="map"]', '#map',
+    # Date/time displays
+    'time', '[datetime]',
+    '.update-date', '.post-date',
+]
+
+
+async def _get_dynamic_content_masks(url: str, viewport_width: int) -> list[tuple[int, int, int, int]]:
+    """Get bounding boxes of dynamic content elements to mask from visual diff.
+
+    Opens the page in Playwright and queries the position of elements that contain
+    daily-changing content (property images, prices, listings, ads).
+
+    Returns:
+        List of (x, y, width, height) tuples for regions to mask.
+    """
+    from playwright.async_api import async_playwright
+
+    user_agent = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/126.0.0.0 Safari/537.36"
+    )
+
+    masks = []
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch()
+            page = await browser.new_page(
+                viewport={"width": viewport_width, "height": 800},
+                user_agent=user_agent,
+            )
+            await page.goto(url, wait_until="networkidle", timeout=30000)
+            await page.wait_for_timeout(1000)
+
+            # Query all dynamic content elements and get their bounding boxes
+            for selector in _VISUAL_MASK_SELECTORS:
+                try:
+                    elements = await page.query_selector_all(selector)
+                    for el in elements:
+                        box = await el.bounding_box()
+                        if box and box["width"] > 0 and box["height"] > 0:
+                            masks.append((
+                                int(box["x"]),
+                                int(box["y"]),
+                                int(box["width"]),
+                                int(box["height"]),
+                            ))
+                except Exception:
+                    pass  # Skip invalid selectors or stale elements
+
+            await browser.close()
+
+    except Exception as e:
+        print(f"    [VisualDiff] Mask extraction failed (using unmasked comparison): {e}")
+
+    return masks
 
 
 async def capture_page_with_html(url: str, viewport_width: int, max_retries: int = 2) -> tuple[str, bytes, int]:
