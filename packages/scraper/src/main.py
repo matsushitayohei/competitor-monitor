@@ -33,6 +33,12 @@ from expired_detector import is_expired_page
 from storage import upload_screenshot
 from visual_diff import generate_visual_diff
 
+# Structure extraction modules
+from structure_extractor import extract_page_structure
+from form_analyzer import analyze_forms
+from cv_detector import detect_cv_elements
+from structure_db import save_page_structure, get_latest_page_structure
+
 
 def compute_dom_hash(structure: str) -> str:
     """Compute a hash of the DOM structure for quick comparison."""
@@ -118,6 +124,51 @@ async def scan_page(page_info: dict) -> dict:
         # 2. Extract DOM structure (removing property-specific content)
         dom_structure = extract_structure(html)
         dom_hash = compute_dom_hash(dom_structure)
+
+        # 2.5. Extract UIUX component structure (independent of diff detection)
+        structure_id_after = None
+        structure_id_before = None
+        try:
+            # Get previous structure ID BEFORE saving new one
+            prev_structure_record = get_latest_page_structure(page_id)
+            if prev_structure_record:
+                structure_id_before = prev_structure_record["id"]
+
+            structure_data = extract_page_structure(html)
+
+            # Form analysis for form pages or pages with forms
+            form_analysis = None
+            if page_type == "form" or structure_data["summary"]["formCount"] > 0:
+                form_result = analyze_forms(html)
+                if form_result["forms"]:
+                    form_analysis = form_result
+
+            # CV element detection
+            cv_data = detect_cv_elements(html)
+
+            # Save structure (only if changed from previous)
+            structure_metadata = {
+                "url": url,
+                "device": device,
+                "pageType": page_type,
+                "serviceName": service_name,
+                "viewport": {"width": viewport_width, "height": 800},
+            }
+            structure_id_after = save_page_structure(
+                page_id=page_id,
+                structure_data=structure_data,
+                cv_points=cv_data,
+                form_analysis=form_analysis,
+                metadata=structure_metadata,
+            )
+            if structure_id_after:
+                print(f"    Structure saved: {structure_data['summary']['componentCount']} components, "
+                      f"{cv_data['summary']['totalCtaCount']} CTAs")
+            else:
+                # No change — before and after are the same
+                structure_id_before = None
+        except Exception as e:
+            print(f"    Structure extraction error (non-fatal): {e}")
 
         # 3. Get previous snapshot
         prev_snapshot = get_latest_snapshot(page_id)
@@ -246,6 +297,8 @@ async def scan_page(page_info: dict) -> dict:
             before_screenshot_path=before_screenshot_path,
             after_screenshot_path=screenshot_path,
             visual_diff_path=visual_diff_path,
+            structure_before_id=structure_id_before,
+            structure_after_id=structure_id_after,
         )
 
         # 9. Save advice if available

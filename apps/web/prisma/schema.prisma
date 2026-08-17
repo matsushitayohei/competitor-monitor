@@ -37,6 +37,7 @@ model MonitoredPage {
   service       Service    @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   snapshots     Snapshot[]
   changes       Change[]
+  structures    PageStructure[]
 }
 
 model Snapshot {
@@ -62,10 +63,14 @@ model Change {
   beforeScreenshotPath String?
   afterScreenshotPath  String?
   visualDiffPath       String?
+  structureBeforeId    String?
+  structureAfterId     String?
   detectedAt           DateTime @default(now())
   isReviewed           Boolean  @default(false)
   page                 MonitoredPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
   advice               Advice?
+  structureBefore      PageStructure? @relation("ChangeStructureBefore", fields: [structureBeforeId], references: [id], onDelete: SetNull)
+  structureAfter       PageStructure? @relation("ChangeStructureAfter", fields: [structureAfterId], references: [id], onDelete: SetNull)
 
   @@index([detectedAt(sort: Desc)])
   @@index([serviceName])
@@ -123,6 +128,7 @@ model PressArticle {
   updatedAt         DateTime  @updatedAt
   deletedAt         DateTime?
   source            PressSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  insights          PressInsight[]
 
   @@unique([sourceId, articleUrl])
   @@index([publishedAt(sort: Desc)])
@@ -130,4 +136,82 @@ model PressArticle {
   @@index([classification])
   @@index([relevanceCategory])
   @@map("press_article")
+}
+
+model PressInsight {
+  id               String   @id @default(cuid())
+  articleId        String
+  insightType      String   // feature_idea, market_trend, ux_pattern, pricing_strategy, competitive_advantage
+  title            String   @db.VarChar(200)
+  description      String   @db.Text
+  applicability    String?  @db.Text  // LIFULL HOME'Sへの適用可能性メモ
+  priority         String   @default("medium") // high, medium, low
+  status           String   @default("new")    // new, reviewed, adopted, dismissed
+  tags             Json     @default("[]")     // JSON配列: ["AI", "CRO", "賃貸"]
+  sourceCompetitor String?  // suumo, athome, canary, other
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  article          PressArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([insightType])
+  @@index([priority])
+  @@index([status])
+  @@index([sourceCompetitor])
+  @@index([createdAt(sort: Desc)])
+  @@map("press_insight")
+}
+
+
+model PageStructure {
+  id               String   @id @default(cuid())
+  pageId           String
+  capturedAt       DateTime @default(now())
+  structureSummary Json
+  sections         Json
+  cvPoints         Json?
+  formAnalysis     Json?
+  componentCount   Int      @default(0)
+  hash             String   @db.VarChar(64)
+  metadata         Json?
+  page             MonitoredPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  changeBefore     Change[] @relation("ChangeStructureBefore")
+  changeAfter      Change[] @relation("ChangeStructureAfter")
+
+  @@index([pageId, capturedAt(sort: Desc)])
+  @@index([hash])
+}
+
+model OwnPage {
+  id            String   @id @default(cuid())
+  name          String
+  pageType      String   @db.VarChar(50)
+  url           String
+  device        String   @default("pc") @db.VarChar(10)
+  category      String?  @default("chintai") @db.VarChar(50)
+  isActive      Boolean  @default(true)
+  lastScannedAt DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime?
+  structures    OwnPageStructure[]
+
+  @@index([pageType, device])
+  @@index([isActive])
+}
+
+model OwnPageStructure {
+  id               String   @id @default(cuid())
+  ownPageId        String
+  capturedAt       DateTime @default(now())
+  structureSummary Json
+  sections         Json
+  cvPoints         Json?
+  formAnalysis     Json?
+  componentCount   Int      @default(0)
+  hash             String   @db.VarChar(64)
+  metadata         Json?
+  ownPage          OwnPage @relation(fields: [ownPageId], references: [id], onDelete: Cascade)
+
+  @@index([ownPageId, capturedAt(sort: Desc)])
+  @@index([hash])
 }

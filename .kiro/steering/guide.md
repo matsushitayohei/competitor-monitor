@@ -10,7 +10,7 @@ LIFULL HOME'Sへの適用をAIがアドバイスするモニタリングシス�
 - フロントエンド: Next.js 14+ (App Router, TypeScript, Tailwind CSS)
 - バックエンド: Next.js API Routes
 - スクレイピング: Python + Playwright
-- DB: Neon PostgreSQL (Vercel Storage 統合)
+- DB: Vercel Postgres (Neon ベース、Vercel Storage で管理)
 - 画像保存: Vercel Blob Storage
 - スケジューラ: GitHub Actions (毎日 JST 6:00)
 - ホスティング: Vercel
@@ -31,9 +31,9 @@ LIFULL HOME'Sへの適用をAIがアドバイスするモニタリングシス�
 
 ## DB設計方針
 
-- Neon PostgreSQL (Vercel Storage 統合、本番は neon-aquamarine-magnet)
+- Vercel Postgres (Neon ベース) — Vercel ダッシュボードの Storage タブで管理
 - Prisma ORM でスキーマ管理
-- マイグレーションは Neon の Query タブまたは psql で手動実行
+- マイグレーションは Vercel Storage の Query タブで手動実行（read-only トグルを OFF にして実行）
 - テーブル名は PascalCase (Prisma デフォルト)
 - タイムスタンプは全て UTC で保存、表示時に JST 変換
 - ソフトデリート（deletedAt カラム）

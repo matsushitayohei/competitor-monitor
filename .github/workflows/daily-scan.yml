@@ -60,6 +60,7 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          PRESS_NOTIFICATIONS_DISABLED: "true"
         run: |
           python packages/scraper/src/press_main.py
 
@@ -70,4 +71,19 @@ jobs:
         run: |
           curl -X POST -H 'Content-type: application/json' \
             --data '{"text":":warning: Press Release Monitor scan failed. Check GitHub Actions logs."}' \
+            $SLACK_WEBHOOK_URL
+
+      - name: Run HOME'S structure scan
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python packages/scraper/src/own_site_scanner.py
+
+      - name: Notify HOME'S scan failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{"text":":warning: HOME'\''S structure scan failed. Check GitHub Actions logs."}' \
             $SLACK_WEBHOOK_URL
