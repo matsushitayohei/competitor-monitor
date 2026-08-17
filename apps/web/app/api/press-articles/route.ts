@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
       pagination: {
         page,
         pageSize: PAGE_SIZE,
-        total,
+        totalCount: total,
         totalPages: Math.ceil(total / PAGE_SIZE),
       },
     });
