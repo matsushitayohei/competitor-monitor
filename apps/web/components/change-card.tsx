@@ -93,10 +93,13 @@ export function ChangeCard({ change }: ChangeCardProps) {
           </a>
         </div>
 
-        {/* Summary - prominent display */}
+        {/* Summary - MAIN display (always shown prominently) */}
         {change.summary && (
           <div className="px-5 pb-3">
-            <p className="text-sm text-gray-800 leading-relaxed">{change.summary}</p>
+            <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
+              <p className="text-xs font-medium text-gray-500 mb-1.5">📋 検知された変更内容</p>
+              <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-line">{change.summary}</p>
+            </div>
           </div>
         )}
 
@@ -108,7 +111,7 @@ export function ChangeCard({ change }: ChangeCardProps) {
           </div>
         )}
 
-        {/* Visual Diff - MAIN display (large, prominent) */}
+        {/* Visual Diff - shown only when clear structural changes were detected */}
         {change.visualDiffPath && (
           <div className="px-5 pb-3">
             <button
@@ -116,7 +119,7 @@ export function ChangeCard({ change }: ChangeCardProps) {
               className="w-full text-left group"
             >
               <p className="text-xs font-medium text-gray-500 mb-1.5">
-                🔍 変更箇所（赤=変更エリア）
+                🔍 構造変更箇所
                 <span className="ml-2 text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">
                   クリックして拡大比較 →
                 </span>
@@ -126,7 +129,7 @@ export function ChangeCard({ change }: ChangeCardProps) {
                   src={change.visualDiffPath}
                   alt="変更箇所ハイライト"
                   label=""
-                  height="h-80"
+                  height="h-72"
                   objectFit="object-contain"
                 />
                 <div className="absolute inset-0 bg-blue-500/0 group-hover:bg-blue-500/5 transition-colors flex items-center justify-center">
@@ -139,7 +142,7 @@ export function ChangeCard({ change }: ChangeCardProps) {
           </div>
         )}
 
-        {/* Before/After thumbnails - secondary display */}
+        {/* Before/After comparison - always available when screenshots exist */}
         {!change.visualDiffPath && (change.beforeScreenshotPath || change.afterScreenshotPath) && (
           <div className="px-5 pb-3">
             <button
@@ -147,7 +150,7 @@ export function ChangeCard({ change }: ChangeCardProps) {
               className="w-full text-left group"
             >
               <p className="text-xs font-medium text-gray-500 mb-1.5">
-                📸 スクリーンショット
+                📸 Before / After
                 <span className="ml-2 text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">
                   クリックしてスライダー比較 →
                 </span>
@@ -159,7 +162,7 @@ export function ChangeCard({ change }: ChangeCardProps) {
                       src={change.beforeScreenshotPath}
                       alt="Before"
                       label="Before"
-                      height="h-56"
+                      height="h-48"
                       objectFit="object-contain"
                     />
                   </div>
@@ -170,12 +173,24 @@ export function ChangeCard({ change }: ChangeCardProps) {
                       src={change.afterScreenshotPath}
                       alt="After"
                       label="After"
-                      height="h-56"
+                      height="h-48"
                       objectFit="object-contain"
                     />
                   </div>
                 )}
               </div>
+            </button>
+          </div>
+        )}
+
+        {/* When visual diff exists but Before/After also available, show small link */}
+        {change.visualDiffPath && (change.beforeScreenshotPath && change.afterScreenshotPath) && (
+          <div className="px-5 pb-2">
+            <button
+              onClick={() => setModalOpen(true)}
+              className="text-xs text-blue-500 hover:text-blue-700 hover:underline"
+            >
+              📸 Before/After スライダーで比較する
             </button>
           </div>
         )}
