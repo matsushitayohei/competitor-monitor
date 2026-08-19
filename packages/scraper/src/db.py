@@ -196,7 +196,7 @@ def get_list_page_for_service(service_id: str) -> Optional[dict]:
                 SELECT id, url, device, "pageType"
                 FROM "MonitoredPage"
                 WHERE "serviceId" = %s
-                  AND "pageType" = 'list'
+                  AND "pageType" IN ('list', 'listing')
                   AND "isActive" = true
                   AND "deletedAt" IS NULL
                 ORDER BY
