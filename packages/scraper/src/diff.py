@@ -45,6 +45,17 @@ _CACHE_BUSTER_PATTERN = re.compile(
     r'[?&](v|ver|version|hash|t|ts|cb|_)=[^&"\']+',
 )
 
+# Pattern to normalize numeric counts in meta content (e.g., "8,526件", "541,874台")
+_META_NUMERIC_PATTERN = re.compile(
+    r'[\d,]+(?:\.\d+)?\s*(?:件|棟|戸|台|室|区画|物件|軒|人|万|円|m²|㎡)'
+)
+
+# Patterns identifying recommend/related property sections (class or id)
+_RECOMMEND_SECTION_PATTERNS = re.compile(
+    r'recommend|おすすめ|関連|人気|ランキング|新着|pickup|similar|related|suggest',
+    re.IGNORECASE,
+)
+
 
 def _normalize_asset_url(tag: Tag, val: str) -> str:
     """Normalize dynamic segments in asset URLs (build hashes, cache busters)."""
@@ -94,6 +105,33 @@ def extract_structure(html: str, exclude_selectors: Optional[list] = None) -> st
     # Normalize dynamic attributes to reduce noise
     for tag in soup.find_all(True):  # All tags
         _normalize_tag_attrs(tag)
+
+    # Normalize meta tag content: replace numeric counts (e.g., "8,526件" → "[NUM]件")
+    for meta in soup.find_all('meta'):
+        content = meta.get('content', '')
+        if content and isinstance(content, str):
+            normalized_content = _META_NUMERIC_PATTERN.sub('[NUM]', content)
+            if normalized_content != content:
+                meta['content'] = normalized_content
+
+    # Normalize links inside recommend/related sections
+    # (property IDs in hrefs change daily as listings rotate)
+    for tag in soup.find_all(True, attrs={'class': True}):
+        classes = tag.get('class', [])
+        if isinstance(classes, list):
+            class_str = ' '.join(classes)
+        else:
+            class_str = str(classes)
+        # Also check id attribute
+        tag_id = tag.get('id', '') or ''
+        combined = f"{class_str} {tag_id}"
+        if _RECOMMEND_SECTION_PATTERNS.search(combined):
+            # Normalize all hrefs within this section
+            for link in tag.find_all('a', href=True):
+                link['href'] = '[RECOMMEND_LINK]'
+            # Also normalize image srcs (property thumbnails)
+            for img in tag.find_all('img', src=True):
+                img['src'] = '[RECOMMEND_IMG]'
 
     # Selectively normalize text content:
     # - Keep text in CRO-significant elements (buttons, headings, links, labels)
@@ -275,6 +313,17 @@ def compute_diff(old_structure: str, new_structure: str) -> Optional[dict]:
     # Count changes
     additions = sum(1 for l in diff_lines if l.startswith('+') and not l.startswith('+++'))
     deletions = sum(1 for l in diff_lines if l.startswith('-') and not l.startswith('---'))
+
+    # SPA rendering timing mitigation:
+    # If the diff is purely deletions (no additions) and the deleted portion is small
+    # relative to the total structure, it's likely a SPA section that didn't render in time.
+    # Threshold: <3% of total lines and only deletions → treat as no change.
+    total_lines = max(len(old_lines), 1)
+    if additions == 0 and deletions > 0 and (deletions / total_lines) < 0.03:
+        return None
+    # Similarly, pure additions of <3% may be a section that rendered extra this time
+    if deletions == 0 and additions > 0 and (additions / total_lines) < 0.03:
+        return None
 
     return {
         "has_changes": True,
