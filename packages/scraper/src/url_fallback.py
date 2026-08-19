@@ -9,6 +9,7 @@ from urllib.parse import urljoin, urlparse
 from typing import Optional
 
 from playwright.async_api import async_playwright
+from playwright_stealth import stealth_async
 
 
 # Service-specific selectors for property detail links on listing pages
@@ -41,6 +42,10 @@ SERVICE_DETAIL_LINK_SELECTORS = {
         '.car-card a[href*="/detail/"]',
         'a[href*="/usedcar/detail/VU"]',
         '.list_item a[href*="/detail/"]',
+        # 一覧ページでの車両カードリンク（2024年以降の構造）
+        'a[href*="/usedcar/detail/"][href$="/index.html"]',
+        '.mod-cassette a[href*="/usedcar/detail/"]',
+        '.cassette_list a[href*="/usedcar/detail/"]',
     ],
     "goo-net": [
         'a[href*="/usedcar/detail/"]',
@@ -48,6 +53,10 @@ SERVICE_DETAIL_LINK_SELECTORS = {
         '.car-card a[href*="/detail/"]',
         '.list-item a[href*="/detail/"]',
         'a[href*="/usedcar/detail/7"]',
+        # 一覧ページでの車両リンク（2024年以降の構造）
+        '.car_list a[href*="/usedcar/detail/"]',
+        '.search_list a[href*="/usedcar/detail/"]',
+        'a[href*="/usedcar/detail/"][href$="/"]',
     ],
     "eheya": [
         'a[href*="/detail/"]',
@@ -188,14 +197,26 @@ async def find_new_detail_url(
         return None
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch()
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+            ],
+        )
         # Use realistic User-Agent to avoid bot detection
         user_agent = (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/126.0.0.0 Safari/537.36"
+            "Chrome/128.0.0.0 Safari/537.36"
         )
-        page = await browser.new_page(viewport={"width": viewport_width, "height": 800}, user_agent=user_agent)
+        page = await browser.new_page(
+            viewport={"width": viewport_width, "height": 800},
+            user_agent=user_agent,
+            locale="ja-JP",
+        )
+        # Apply playwright-stealth for comprehensive bot detection bypass
+        await stealth_async(page)
 
         try:
             response = await page.goto(list_page_url, wait_until="networkidle", timeout=30000)
@@ -204,7 +225,8 @@ async def find_new_detail_url(
                 await browser.close()
                 return None
 
-            await page.wait_for_timeout(2000)
+            # Wait longer for JS-rendered content (some listing pages load dynamically)
+            await page.wait_for_timeout(3000)
 
             # Try each selector to find detail links
             found_urls: list[str] = []
@@ -219,6 +241,12 @@ async def find_new_detail_url(
                                 found_urls.append(absolute_url)
                 except Exception:
                     continue
+
+            if not found_urls:
+                # Log page content length to help diagnose empty results
+                html = await page.content()
+                print(f"    [URL Fallback] No detail URLs found on listing page "
+                      f"(page content: {len(html)} chars, selectors tried: {len(selectors)})")
 
             await browser.close()
 

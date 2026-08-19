@@ -23,6 +23,7 @@ from playwright.async_api import (
     Page,
     BrowserContext,
 )
+from playwright_stealth import stealth_async
 
 from press_db import get_active_press_sources, article_exists, save_press_article
 from press_parsers import get_parser_for_source
@@ -99,7 +100,7 @@ async def _fetch_source_page(page: Page, source_url: str) -> str:
         try:
             if attempt > 0:
                 # Add longer delay between retries to appear more human-like
-                await asyncio.sleep(5.0 + attempt * 2.0)
+                await asyncio.sleep(5.0 + attempt * 3.0)
                 logger.info(
                     f"  Retry {attempt}/{MAX_RETRIES} with wait_until='{wait_until}'"
                 )
@@ -114,7 +115,8 @@ async def _fetch_source_page(page: Page, source_url: str) -> str:
                     f"  HTTP 403 on attempt {attempt + 1}, "
                     f"waiting for JS challenge resolution..."
                 )
-                await page.wait_for_timeout(5000)
+                # Some WAFs set cookies after initial 403, then redirect on reload
+                await page.wait_for_timeout(8000)
                 # Check if page content loaded after JS challenge
                 html = await page.content()
                 if len(html) > 1000 and "403" not in html[:200]:
@@ -122,6 +124,17 @@ async def _fetch_source_page(page: Page, source_url: str) -> str:
                         f"  JS challenge resolved after wait (content: {len(html)} chars)"
                     )
                     return html
+
+                # Try reloading after cookies are set
+                if attempt < MAX_RETRIES:
+                    logger.info(f"  Attempting page reload after cookie set...")
+                    await page.wait_for_timeout(3000)
+                    response = await page.reload(wait_until="domcontentloaded", timeout=TIMEOUT_MS)
+                    if response and response.status == 200:
+                        html = await page.content()
+                        if len(html) > 1000:
+                            logger.info(f"  Reload successful after cookie set (content: {len(html)} chars)")
+                            return html
 
                 last_error = Exception(
                     f"HTTP 403 from press source page: {source_url}"
@@ -183,6 +196,12 @@ async def scrape_press_source(page: Page, source: dict) -> list[dict]:
 
     # Get the appropriate parser for this source
     parser = get_parser_for_source(source_name)
+
+    # Set Referer to the source's top page to mimic natural navigation
+    from urllib.parse import urlparse
+    parsed = urlparse(source_url)
+    referer = f"{parsed.scheme}://{parsed.netloc}/"
+    await page.set_extra_http_headers({"Referer": referer})
 
     # Fetch the press release listing page with retry logic
     html = await _fetch_source_page(page, source_url)
@@ -281,7 +300,7 @@ async def run_press_scraper() -> dict:
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/126.0.0.0 Safari/537.36"
+                "Chrome/128.0.0.0 Safari/537.36"
             ),
             viewport={"width": 1920, "height": 1080},
             locale="ja-JP",
@@ -289,9 +308,9 @@ async def run_press_scraper() -> dict:
             extra_http_headers={
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
                 "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
-                "Accept-Encoding": "gzip, deflate, br",
+                "Accept-Encoding": "gzip, deflate, br, zstd",
                 "Cache-Control": "no-cache",
-                "Sec-Ch-Ua": '"Chromium";v="126", "Not A(Brand";v="8", "Google Chrome";v="126"',
+                "Sec-Ch-Ua": '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
                 "Sec-Ch-Ua-Mobile": "?0",
                 "Sec-Ch-Ua-Platform": '"Windows"',
                 "Sec-Fetch-Dest": "document",
@@ -304,13 +323,8 @@ async def run_press_scraper() -> dict:
         # Create a fresh page per source to avoid cookie/session cross-contamination
         for source in sources:
             page = await context.new_page()
-            # Apply stealth scripts to bypass bot detection (webdriver flag, etc.)
-            await page.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-                window.chrome = { runtime: {} };
-                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
-                Object.defineProperty(navigator, 'languages', { get: () => ['ja', 'en-US', 'en'] });
-            """)
+            # Apply playwright-stealth to bypass bot detection comprehensively
+            await stealth_async(page)
             try:
                 new_articles = await scrape_press_source(page, source)
                 results["new_articles"] += len(new_articles)
