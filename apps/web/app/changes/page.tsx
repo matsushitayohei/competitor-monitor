@@ -9,6 +9,7 @@ interface SearchParams {
   service?: string;
   category?: string;
   reviewed?: string;
+  priority?: string;
   page?: string;
 }
 
@@ -23,12 +24,23 @@ export default async function ChangesPage({
   const serviceFilter = searchParams.service || "";
   const categoryFilter = searchParams.category || "";
   const reviewedFilter = searchParams.reviewed || "";
+  // デフォルトで low を除外（ノイズ非表示）、"all" で全件表示
+  const priorityFilter = searchParams.priority ?? "not_low";
 
   const where = {
     ...(serviceFilter && { serviceName: serviceFilter }),
     ...(categoryFilter && { category: categoryFilter }),
     ...(reviewedFilter === "true" && { isReviewed: true }),
     ...(reviewedFilter === "false" && { isReviewed: false }),
+    ...(priorityFilter === "not_low" && {
+      OR: [
+        { advice: { priority: { not: "low" } } },
+        { advice: { is: null } },
+      ],
+    }),
+    ...(priorityFilter === "high" && { advice: { priority: "high" } }),
+    ...(priorityFilter === "medium" && { advice: { priority: "medium" } }),
+    ...(priorityFilter === "low" && { advice: { priority: "low" } }),
   };
 
   const [changes, totalCount, services] = await Promise.all([
@@ -56,6 +68,7 @@ export default async function ChangesPage({
     if (params.service || serviceFilter) p.set("service", params.service ?? serviceFilter);
     if (params.category || categoryFilter) p.set("category", params.category ?? categoryFilter);
     if (params.reviewed || reviewedFilter) p.set("reviewed", params.reviewed ?? reviewedFilter);
+    if (params.priority !== undefined ? params.priority : priorityFilter) p.set("priority", params.priority ?? priorityFilter);
     if (params.page) p.set("page", params.page);
     // Remove empty params
     for (const [k, v] of p.entries()) { if (!v) p.delete(k); }
@@ -120,6 +133,26 @@ export default async function ChangesPage({
                   key={opt.value}
                   href={buildUrl({ reviewed: opt.value, page: "1" })}
                   className={`px-2 py-1 text-xs rounded ${reviewedFilter === opt.value ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+                >
+                  {opt.label}
+                </Link>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-600">優先度:</label>
+            <div className="flex gap-1">
+              {[
+                { value: "not_low", label: "重要のみ" },
+                { value: "high", label: "🔴 高" },
+                { value: "medium", label: "🟡 中" },
+                { value: "low", label: "⚪ 低" },
+                { value: "all", label: "全て" },
+              ].map((opt) => (
+                <Link
+                  key={opt.value}
+                  href={buildUrl({ priority: opt.value, page: "1" })}
+                  className={`px-2 py-1 text-xs rounded ${priorityFilter === opt.value ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
                 >
                   {opt.label}
                 </Link>

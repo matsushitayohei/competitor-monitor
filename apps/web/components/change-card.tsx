@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ScreenshotImage } from "./screenshot-image";
 import { ScreenshotModal } from "./screenshot-modal";
+import { DiffViewer } from "./diff-viewer";
 
 interface ChangeCardProps {
   change: {
@@ -103,7 +104,28 @@ export function ChangeCard({ change }: ChangeCardProps) {
           </div>
         )}
 
-        {/* AI Advice - inline summary */}
+        {/* AI Advice - summary & intent */}
+        {change.advice?.summary && (
+          <div className="mx-5 mb-3 p-3 bg-indigo-50 rounded-lg border border-indigo-200">
+            <p className="text-xs font-medium text-indigo-700 mb-1">🤖 AI分析</p>
+            <p className="text-sm text-indigo-900 leading-relaxed">{change.advice.summary}</p>
+            {change.advice.intent && (
+              <p className="text-xs text-indigo-600 mt-1.5">
+                <span className="font-medium">競合の狙い:</span> {change.advice.intent}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* 未分析バッジ - advice が存在しない場合 */}
+        {!change.advice && (
+          <div className="mx-5 mb-3 px-3 py-2 bg-gray-50 rounded-lg border border-dashed border-gray-300 flex items-center gap-2">
+            <span className="text-xs text-gray-400">🔍</span>
+            <span className="text-xs text-gray-500">AI未分析 — MCP経由で分析を実行できます</span>
+          </div>
+        )}
+
+        {/* AI Advice - inline proposal */}
         {change.advice?.proposal && (
           <div className="mx-5 mb-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
             <p className="text-xs font-medium text-amber-700 mb-1">💡 HOME&apos;Sへの提案</p>
@@ -195,7 +217,7 @@ export function ChangeCard({ change }: ChangeCardProps) {
           </div>
         )}
 
-        {/* DOM diff - collapsed */}
+        {/* DOM diff - improved viewer */}
         {change.diffText && (
           <div className="px-5 pb-4">
             <details className="group">
@@ -203,24 +225,9 @@ export function ChangeCard({ change }: ChangeCardProps) {
                 <span className="group-open:hidden">▶ DOM差分を表示</span>
                 <span className="hidden group-open:inline">▼ DOM差分を閉じる</span>
               </summary>
-              <pre className="mt-2 p-3 bg-gray-900 text-gray-100 text-xs rounded-lg overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap break-all">
-                {change.diffText.split("\n").map((line, i) => (
-                  <span
-                    key={i}
-                    className={
-                      line.startsWith("+") && !line.startsWith("+++")
-                        ? "text-green-400"
-                        : line.startsWith("-") && !line.startsWith("---")
-                        ? "text-red-400"
-                        : line.startsWith("@@")
-                        ? "text-cyan-400"
-                        : ""
-                    }
-                  >
-                    {line}{"\n"}
-                  </span>
-                ))}
-              </pre>
+              <div className="mt-2">
+                <DiffViewer diffText={change.diffText} />
+              </div>
             </details>
           </div>
         )}
