@@ -1,5 +1,5 @@
 ﻿playwright==1.49.0
-playwright-stealth==1.0.6
+tf-playwright-stealth==1.2.0
 setuptools>=70.0.0
 Pillow==11.0.0
 numpy>=1.26.0
