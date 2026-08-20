@@ -25,8 +25,27 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
 
 
 def get_connection():
-    """Get a connection from the pool."""
-    return _get_pool().getconn()
+    """Get a healthy connection from the pool.
+
+    Neon DB closes idle SSL connections after a short timeout.
+    This retries once with a fresh pool if the connection is stale.
+    """
+    pool = _get_pool()
+    conn = pool.getconn()
+    try:
+        # Lightweight liveness check — no round-trip on healthy connections
+        conn.cursor().execute("SELECT 1")
+        conn.rollback()
+        return conn
+    except Exception:
+        # Connection is stale; discard it and rebuild the pool
+        try:
+            pool.putconn(conn, close=True)
+        except Exception:
+            pass
+        global _pool
+        _pool = None
+        return _get_pool().getconn()
 
 
 def release_connection(conn):
