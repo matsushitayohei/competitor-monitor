@@ -115,10 +115,10 @@ def summarize_change(diff_text: str) -> str:
     elements = _detect_elements("\n".join(added_lines + removed_lines))
     if elements:
         top = [TAG_LABELS.get(e, e) for e in list(elements.keys())[:3]]
-        return f"{', '.join(top)}周辺のDOM構造変更 ({total_changes}行)"
+        return f"{', '.join(top)}周辺の構造変更（{total_changes}行）— 詳細はDOM差分を参照"
 
     if total_changes > 0:
-        return f"DOM構造に軽微な変更 ({total_changes}行)"
+        return f"DOM構造の変更（{total_changes}行）— 詳細はDOM差分を参照"
     return "DOM構造に変更を検知"
 
 
@@ -222,63 +222,52 @@ def _extract_structural_changes(added_lines: list[str], removed_lines: list[str]
     added_text = "\n".join(added_lines)
     removed_text = "\n".join(removed_lines)
 
+    # class/id から要素名のヒントを抽出するパターン
+    _hint_pattern = re.compile(
+        r'(?:class|id)="([^"]*)"', re.IGNORECASE
+    )
+
+    def _extract_hint(text: str, tag_pattern: str) -> str:
+        """マッチした行から class/id の先頭部分を取得してヒントにする。"""
+        for line in text.splitlines():
+            if re.search(tag_pattern, line, re.IGNORECASE):
+                for m in _hint_pattern.finditer(line):
+                    val = m.group(1).split()[0] if m.group(1).split() else ""
+                    # 汎用すぎるクラス名は除外
+                    if val and len(val) > 2 and val not in ("hidden", "block", "flex", "grid", "w-full"):
+                        return f"（{val}）"
+        return ""
+
     for pattern, label in structural_patterns:
         added_count = len(re.findall(pattern, added_text, re.IGNORECASE))
         removed_count = len(re.findall(pattern, removed_text, re.IGNORECASE))
 
         if added_count > 0 and removed_count == 0:
-            changes.append(f"{label}が新規追加")
+            hint = _extract_hint(added_text, pattern)
+            changes.append(f"{label}{hint}が新規追加")
         elif removed_count > 0 and added_count == 0:
-            changes.append(f"{label}が削除")
+            hint = _extract_hint(removed_text, pattern)
+            changes.append(f"{label}{hint}が削除")
         elif added_count > removed_count:
-            changes.append(f"{label}が追加 (+{added_count - removed_count})")
+            hint = _extract_hint(added_text, pattern)
+            changes.append(f"{label}{hint}が追加 (+{added_count - removed_count})")
 
     return changes
 
 
 def _extract_attribute_changes(added_lines: list[str], removed_lines: list[str]) -> list[str]:
-    """Detect meaningful attribute changes (colors, classes, aria attributes)."""
+    """Attribute-level changes: aria/role additions only.
+
+    クラス名のパターンマッチによる曖昧なラベル（「デバイス別表示の変更」等）は
+    目的に対して情報量が低いため削除。aria/role 追加のみを残す。
+    """
     changes = []
 
-    # Look for class changes that indicate UI modifications
-    class_pattern = re.compile(r'class="([^"]*)"')
-
-    added_classes = set()
-    removed_classes = set()
-
-    for line in added_lines:
-        for match in class_pattern.finditer(line):
-            for cls in match.group(1).split():
-                added_classes.add(cls)
-
-    for line in removed_lines:
-        for match in class_pattern.finditer(line):
-            for cls in match.group(1).split():
-                removed_classes.add(cls)
-
-    # Detect new classes that weren't in removed lines (new styling/components)
-    new_classes = added_classes - removed_classes
-    gone_classes = removed_classes - added_classes
-
-    # Look for significant class patterns
-    significant_class_patterns = [
-        (r'hidden|display-none|d-none|invisible', "要素の表示/非表示変更"),
-        (r'color|bg-|background', "色・背景の変更"),
-        (r'fixed|sticky|absolute', "レイアウト位置の変更"),
-        (r'sp-|pc-|mobile-|desktop-', "デバイス別表示の変更"),
-        (r'new|badge|notification', "新着/バッジ表示の変更"),
-    ]
-
-    new_class_str = " ".join(new_classes | gone_classes)
-    for pattern, label in significant_class_patterns:
-        if re.search(pattern, new_class_str, re.IGNORECASE):
-            changes.append(label)
-
-    # Detect aria/role changes (accessibility improvements)
+    # Detect aria/role changes (accessibility improvements) - still actionable
     aria_added = sum(1 for l in added_lines if 'aria-' in l or 'role=' in l)
     aria_removed = sum(1 for l in removed_lines if 'aria-' in l or 'role=' in l)
     if aria_added > aria_removed + 2:
-        changes.append("アクセシビリティ属性の追加")
+        changes.append("アクセシビリティ属性（aria/role）が追加")
 
     return changes
 
