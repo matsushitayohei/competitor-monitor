@@ -5,6 +5,33 @@ import { ScreenshotImage } from "./screenshot-image";
 import { ScreenshotModal } from "./screenshot-modal";
 import { DiffViewer } from "./diff-viewer";
 
+// カテゴリ英語 → 日本語
+const CATEGORY_LABELS: Record<string, string> = {
+  CRO: "コンバージョン改善",
+  AD_PRODUCT: "広告・プロモーション",
+  SEO: "SEO",
+  AI: "AI機能",
+  OTHER: "その他",
+};
+
+// MCP経由プレースホルダー判定
+const MCP_PLACEHOLDER_PATTERN = /MCP経由/;
+function isMcpPlaceholder(text: string | null | undefined): boolean {
+  return !text || MCP_PLACEHOLDER_PATTERN.test(text);
+}
+
+// URL短縮：ドメイン + パスの先頭40文字
+function shortenUrl(url: string): string {
+  try {
+    const { hostname, pathname, search } = new URL(url);
+    const path = pathname + search;
+    const truncated = path.length > 40 ? path.slice(0, 40) + "…" : path;
+    return hostname + truncated;
+  } catch {
+    return url.length > 60 ? url.slice(0, 60) + "…" : url;
+  }
+}
+
 interface ChangeCardProps {
   change: {
     id: string;
@@ -38,6 +65,22 @@ export function ChangeCard({ change }: ChangeCardProps) {
   const [modalOpen, setModalOpen] = useState(false);
 
   const hasScreenshots = change.beforeScreenshotPath || change.afterScreenshotPath || change.visualDiffPath;
+  const hasBeforeAfter = change.beforeScreenshotPath && change.afterScreenshotPath;
+
+  // AI分析テキストがMCPプレースホルダーでなければ表示
+  const aiSummary = !isMcpPlaceholder(change.advice?.summary) ? change.advice?.summary : null;
+  const aiIntent = !isMcpPlaceholder(change.advice?.intent) ? change.advice?.intent : null;
+  const aiProposal = !isMcpPlaceholder(change.advice?.proposal) ? change.advice?.proposal : null;
+  const hasRealAdvice = aiSummary || aiIntent || aiProposal;
+
+  const categoryLabel = change.category ? (CATEGORY_LABELS[change.category] ?? change.category) : null;
+
+  // スクリーンショット表示列数の計算
+  const screenshotCols =
+    change.visualDiffPath && hasBeforeAfter ? 3
+    : change.visualDiffPath || hasBeforeAfter ? 2
+    : change.beforeScreenshotPath || change.afterScreenshotPath ? 1
+    : 0;
 
   return (
     <>
@@ -62,9 +105,9 @@ export function ChangeCard({ change }: ChangeCardProps) {
               )}
             </div>
             <div className="flex items-center gap-2">
-              {change.category && (
+              {categoryLabel && (
                 <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                  {change.category}
+                  {categoryLabel}
                 </span>
               )}
               {change.advice?.priority && (
@@ -83,14 +126,15 @@ export function ChangeCard({ change }: ChangeCardProps) {
             </div>
           </div>
 
-          {/* URL */}
+          {/* URL（短縮表示） */}
           <a
             href={change.page.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-blue-500 hover:underline break-all line-clamp-1"
+            className="text-xs text-blue-500 hover:underline"
+            title={change.page.url}
           >
-            {change.page.url}
+            {shortenUrl(change.page.url)}
           </a>
         </div>
 
@@ -104,125 +148,94 @@ export function ChangeCard({ change }: ChangeCardProps) {
           </div>
         )}
 
-        {/* AI Advice - summary & intent */}
-        {change.advice?.summary && (
+        {/* AI Advice - summary & intent（MCPプレースホルダーは非表示） */}
+        {hasRealAdvice && (
           <div className="mx-5 mb-3 p-3 bg-indigo-50 rounded-lg border border-indigo-200">
             <p className="text-xs font-medium text-indigo-700 mb-1">🤖 AI分析</p>
-            <p className="text-sm text-indigo-900 leading-relaxed">{change.advice.summary}</p>
-            {change.advice.intent && (
+            {aiSummary && (
+              <p className="text-sm text-indigo-900 leading-relaxed">{aiSummary}</p>
+            )}
+            {aiIntent && (
               <p className="text-xs text-indigo-600 mt-1.5">
-                <span className="font-medium">競合の狙い:</span> {change.advice.intent}
+                <span className="font-medium">競合の狙い:</span> {aiIntent}
               </p>
             )}
           </div>
         )}
 
-        {/* 未分析バッジ - advice が存在しない場合 */}
-        {!change.advice && (
-          <div className="mx-5 mb-3 px-3 py-2 bg-gray-50 rounded-lg border border-dashed border-gray-300 flex items-center gap-2">
-            <span className="text-xs text-gray-400">🔍</span>
-            <span className="text-xs text-gray-500">AI未分析 — MCP経由で分析を実行できます</span>
-          </div>
-        )}
-
-        {/* AI Advice - inline proposal */}
-        {change.advice?.proposal && (
+        {/* HOME'Sへの提案（MCPプレースホルダーは非表示） */}
+        {aiProposal && (
           <div className="mx-5 mb-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
             <p className="text-xs font-medium text-amber-700 mb-1">💡 HOME&apos;Sへの提案</p>
-            <p className="text-sm text-amber-900 leading-relaxed">{change.advice.proposal}</p>
+            <p className="text-sm text-amber-900 leading-relaxed">{aiProposal}</p>
           </div>
         )}
 
-        {/* Visual Diff - shown only when clear structural changes were detected */}
-        {change.visualDiffPath && (
+        {/* ── スクリーンショット比較エリア（常時表示・クリック不要） ── */}
+        {screenshotCols > 0 && (
           <div className="px-5 pb-3">
-            <button
-              onClick={() => setModalOpen(true)}
-              className="w-full text-left group"
-            >
-              <p className="text-xs font-medium text-gray-500 mb-1.5">
-                🔍 構造変更箇所
-                <span className="ml-2 text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                  クリックして拡大比較 →
-                </span>
-              </p>
-              <div className="relative overflow-hidden rounded-lg border border-gray-200 group-hover:border-blue-300 transition-colors">
-                <ScreenshotImage
-                  src={change.visualDiffPath}
-                  alt="変更箇所ハイライト"
-                  label=""
-                  height="h-72"
-                  objectFit="object-contain"
-                />
-                <div className="absolute inset-0 bg-blue-500/0 group-hover:bg-blue-500/5 transition-colors flex items-center justify-center">
-                  <span className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 px-3 py-1.5 rounded-full text-sm text-blue-700 shadow">
-                    拡大して比較する
-                  </span>
+            <p className="text-xs font-medium text-gray-500 mb-2">
+              📸 変更箇所の比較
+              {hasScreenshots && (
+                <button
+                  onClick={() => setModalOpen(true)}
+                  className="ml-2 text-blue-500 hover:text-blue-700 hover:underline"
+                >
+                  拡大表示 →
+                </button>
+              )}
+            </p>
+            <div className={`grid gap-2 ${
+              screenshotCols === 3 ? "grid-cols-3" :
+              screenshotCols === 2 ? "grid-cols-2" :
+              "grid-cols-1"
+            }`}>
+              {/* Before */}
+              {change.beforeScreenshotPath && (
+                <div className="overflow-hidden rounded-lg border border-gray-200">
+                  <ScreenshotImage
+                    src={change.beforeScreenshotPath}
+                    alt="Before"
+                    label="Before"
+                    height="h-52"
+                    objectFit="object-contain"
+                  />
                 </div>
-              </div>
-            </button>
+              )}
+              {/* After */}
+              {change.afterScreenshotPath && (
+                <div className="overflow-hidden rounded-lg border border-gray-200">
+                  <ScreenshotImage
+                    src={change.afterScreenshotPath}
+                    alt="After"
+                    label="After"
+                    height="h-52"
+                    objectFit="object-contain"
+                  />
+                </div>
+              )}
+              {/* 差分ハイライト（赤枠付き） */}
+              {change.visualDiffPath && (
+                <div className="overflow-hidden rounded-lg border border-red-200">
+                  <ScreenshotImage
+                    src={change.visualDiffPath}
+                    alt="変更箇所ハイライト"
+                    label="変更箇所"
+                    height="h-52"
+                    objectFit="object-contain"
+                  />
+                </div>
+              )}
+            </div>
           </div>
         )}
 
-        {/* Before/After comparison - always available when screenshots exist */}
-        {!change.visualDiffPath && (change.beforeScreenshotPath || change.afterScreenshotPath) && (
-          <div className="px-5 pb-3">
-            <button
-              onClick={() => setModalOpen(true)}
-              className="w-full text-left group"
-            >
-              <p className="text-xs font-medium text-gray-500 mb-1.5">
-                📸 Before / After
-                <span className="ml-2 text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                  クリックしてスライダー比較 →
-                </span>
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                {change.beforeScreenshotPath && (
-                  <div className="relative overflow-hidden rounded-lg border border-gray-200 group-hover:border-blue-300 transition-colors">
-                    <ScreenshotImage
-                      src={change.beforeScreenshotPath}
-                      alt="Before"
-                      label="Before"
-                      height="h-48"
-                      objectFit="object-contain"
-                    />
-                  </div>
-                )}
-                {change.afterScreenshotPath && (
-                  <div className="relative overflow-hidden rounded-lg border border-gray-200 group-hover:border-blue-300 transition-colors">
-                    <ScreenshotImage
-                      src={change.afterScreenshotPath}
-                      alt="After"
-                      label="After"
-                      height="h-48"
-                      objectFit="object-contain"
-                    />
-                  </div>
-                )}
-              </div>
-            </button>
-          </div>
-        )}
-
-        {/* When visual diff exists but Before/After also available, show small link */}
-        {change.visualDiffPath && (change.beforeScreenshotPath && change.afterScreenshotPath) && (
-          <div className="px-5 pb-2">
-            <button
-              onClick={() => setModalOpen(true)}
-              className="text-xs text-blue-500 hover:text-blue-700 hover:underline"
-            >
-              📸 Before/After スライダーで比較する
-            </button>
-          </div>
-        )}
-
-        {/* DOM diff - improved viewer */}
+        {/* ── DOM差分（開発者向け・最下部） ── */}
         {change.diffText && (
-          <div className="px-5 pb-4">
+          <div className="px-5 pb-4 border-t border-gray-100 pt-3 mt-1">
             <details className="group">
-              <summary className="text-xs font-medium text-gray-400 cursor-pointer hover:text-gray-600 transition-colors">
-                <span className="group-open:hidden">▶ DOM差分を表示</span>
+              <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-500 transition-colors select-none">
+                <span className="group-open:hidden">▶ DOM差分を表示（開発者向け）</span>
                 <span className="hidden group-open:inline">▼ DOM差分を閉じる</span>
               </summary>
               <div className="mt-2">

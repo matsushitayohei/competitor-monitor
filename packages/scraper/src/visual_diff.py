@@ -20,9 +20,9 @@ from PIL import Image, ImageDraw, ImageFilter
 # AND are concentrated (not scattered pixel noise)
 _BLOCK_SIZE = 32            # Large blocks = less sensitive to small pixel changes
 _PIXEL_THRESHOLD = 60       # High threshold = ignore subtle color/rendering differences
-_MIN_REGION_AREA = 5000     # Only show regions >= ~70x70px
-_MAX_REGIONS = 5            # If more than 5 distinct changed regions, it's likely noise
-_MIN_REGION_CONCENTRATION = 0.02  # Region must cover at least 2% of image area to matter
+_MIN_REGION_AREA = 3000     # Relaxed: ~55x55px以上で表示（旧: 5000=70x70px）
+_MAX_REGIONS = 15           # Relaxed: 最大15領域まで許容（旧: 5）
+_MIN_REGION_CONCENTRATION = 0.01  # Relaxed: 1%以上に緩和（旧: 2%）
 
 
 def generate_visual_diff(
@@ -52,10 +52,10 @@ def generate_visual_diff(
         before_w, before_h = before_img.size
         after_w, after_h = after_img.size
 
-        # If page height changed significantly (>10%), the whole layout shifted.
+        # If page height changed significantly (>25%), the whole layout shifted.
         # Pixel comparison would flag everything below the change point.
         # In this case, text summary is more useful than a noisy diff image.
-        if before_h > 0 and abs(after_h - before_h) / before_h > 0.10:
+        if before_h > 0 and abs(after_h - before_h) / before_h > 0.25:
             return None
 
         # If width is different (viewport mismatch), skip entirely

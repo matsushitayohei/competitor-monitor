@@ -24,12 +24,15 @@ export default async function ChangesPage({
   const serviceFilter = searchParams.service || "";
   const categoryFilter = searchParams.category || "";
   const reviewedFilter = searchParams.reviewed || "";
-  // デフォルトで low を除外（ノイズ非表示）、"all" で全件表示
+  // デフォルトで low / OTHER を除外（ノイズ非表示）、"all" で全件表示
   const priorityFilter = searchParams.priority ?? "not_low";
 
   const where = {
     ...(serviceFilter && { serviceName: serviceFilter }),
-    ...(categoryFilter && { category: categoryFilter }),
+    // "all_category" は全カテゴリ表示、それ以外はフィルタ適用
+    ...(categoryFilter && categoryFilter !== "all_category" && { category: categoryFilter }),
+    // カテゴリ未指定（デフォルト）の場合は OTHER を除外
+    ...(!categoryFilter && { category: { not: "OTHER" } }),
     ...(reviewedFilter === "true" && { isReviewed: true }),
     ...(reviewedFilter === "false" && { isReviewed: false }),
     ...(priorityFilter === "not_low" && {
@@ -65,13 +68,16 @@ export default async function ChangesPage({
 
   function buildUrl(params: Record<string, string>) {
     const p = new URLSearchParams();
-    if (params.service || serviceFilter) p.set("service", params.service ?? serviceFilter);
-    if (params.category || categoryFilter) p.set("category", params.category ?? categoryFilter);
-    if (params.reviewed || reviewedFilter) p.set("reviewed", params.reviewed ?? reviewedFilter);
-    if (params.priority !== undefined ? params.priority : priorityFilter) p.set("priority", params.priority ?? priorityFilter);
+    // params に明示的にキーが渡された場合はその値を使う（空文字含む）、なければ現在の値
+    const service = "service" in params ? params.service : serviceFilter;
+    const category = "category" in params ? params.category : categoryFilter;
+    const reviewed = "reviewed" in params ? params.reviewed : reviewedFilter;
+    const priority = "priority" in params ? params.priority : priorityFilter;
+    if (service) p.set("service", service);
+    if (category) p.set("category", category);
+    if (reviewed) p.set("reviewed", reviewed);
+    if (priority) p.set("priority", priority);
     if (params.page) p.set("page", params.page);
-    // Remove empty params
-    for (const [k, v] of p.entries()) { if (!v) p.delete(k); }
     const qs = p.toString();
     return `/changes${qs ? `?${qs}` : ""}`;
   }
@@ -109,14 +115,22 @@ export default async function ChangesPage({
           </div>
           <div className="flex items-center gap-2">
             <label className="text-sm text-gray-600">カテゴリ:</label>
-            <div className="flex gap-1">
-              {["", "CRO", "AD_PRODUCT", "SEO", "AI", "OTHER"].map((cat) => (
+            <div className="flex gap-1 flex-wrap">
+              {[
+                { value: "", label: "主要のみ" },
+                { value: "CRO", label: "コンバージョン改善" },
+                { value: "AD_PRODUCT", label: "広告・プロモーション" },
+                { value: "SEO", label: "SEO" },
+                { value: "AI", label: "AI機能" },
+                { value: "OTHER", label: "その他" },
+                { value: "all_category", label: "全カテゴリ" },
+              ].map((cat) => (
                 <Link
-                  key={cat}
-                  href={buildUrl({ category: cat, page: "1" })}
-                  className={`px-2 py-1 text-xs rounded ${categoryFilter === cat ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+                  key={cat.value}
+                  href={buildUrl({ category: cat.value, page: "1" })}
+                  className={`px-2 py-1 text-xs rounded ${categoryFilter === cat.value ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
                 >
-                  {cat || "全て"}
+                  {cat.label}
                 </Link>
               ))}
             </div>
