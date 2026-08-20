@@ -20,7 +20,6 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install --no-cache-dir setuptools
           pip install --no-cache-dir -r packages/scraper/requirements.txt
           pip install --no-cache-dir -r packages/analyzer/requirements.txt
 
@@ -39,6 +38,8 @@ jobs:
         run: playwright install-deps chromium
 
       - name: Run scan
+        id: run_scan
+        continue-on-error: true
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -48,7 +49,7 @@ jobs:
           python packages/scraper/src/main.py
 
       - name: Notify on failure
-        if: failure()
+        if: steps.run_scan.outcome == 'failure'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
@@ -57,6 +58,8 @@ jobs:
             $SLACK_WEBHOOK_URL
 
       - name: Run press release scan
+        id: run_press
+        continue-on-error: true
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -65,7 +68,7 @@ jobs:
           python packages/scraper/src/press_main.py
 
       - name: Notify press scan failure
-        if: failure()
+        if: steps.run_press.outcome == 'failure'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
@@ -74,16 +77,22 @@ jobs:
             $SLACK_WEBHOOK_URL
 
       - name: Run HOME'S structure scan
+        id: run_homes
+        continue-on-error: true
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           python packages/scraper/src/own_site_scanner.py
 
       - name: Notify HOME'S scan failure
-        if: failure()
+        if: steps.run_homes.outcome == 'failure'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
           curl -X POST -H 'Content-type: application/json' \
             --data '{"text":":warning: HOME'\''S structure scan failed. Check GitHub Actions logs."}' \
             $SLACK_WEBHOOK_URL
+
+      - name: Fail job if any scan failed
+        if: steps.run_scan.outcome == 'failure' || steps.run_press.outcome == 'failure' || steps.run_homes.outcome == 'failure'
+        run: exit 1

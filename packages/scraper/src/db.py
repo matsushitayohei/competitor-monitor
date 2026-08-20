@@ -33,8 +33,8 @@ def get_connection():
     pool = _get_pool()
     conn = pool.getconn()
     try:
-        # Lightweight liveness check — no round-trip on healthy connections
-        conn.cursor().execute("SELECT 1")
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
         conn.rollback()
         return conn
     except Exception:
