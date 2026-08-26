@@ -7,12 +7,13 @@
     BLOB_READ_WRITE_TOKEN=xxx python cleanup_blob.py [--dry-run]
 """
 
+import json
 import os
 import sys
 import time
 from typing import Optional
 
-import httpx
+import requests
 
 BLOB_API_BASE = "https://blob.vercel-storage.com"
 # 削除対象プレフィックス（screenshots/ 以下を全て対象）
@@ -22,20 +23,12 @@ DELETE_BATCH_SIZE = 100
 
 
 def list_blobs(token: str, prefix: str, cursor: Optional[str] = None) -> dict:
-    """Blob ストアのファイル一覧を取得する（1ページ分）。
-
-    Returns:
-        {
-            "blobs": [{"url": str, "pathname": str, "size": int, ...}],
-            "cursor": str | None,      # 次ページがある場合
-            "hasMore": bool,
-        }
-    """
+    """Blob ストアのファイル一覧を取得する（1ページ分）。"""
     params: dict = {"prefix": prefix, "limit": 1000}
     if cursor:
         params["cursor"] = cursor
 
-    resp = httpx.get(
+    resp = requests.get(
         BLOB_API_BASE + "/",
         params=params,
         headers={
@@ -50,11 +43,9 @@ def list_blobs(token: str, prefix: str, cursor: Optional[str] = None) -> dict:
 
 def delete_blobs(token: str, urls: list[str]) -> None:
     """指定した URL の Blob を一括削除する。"""
-    import json as _json
-
-    resp = httpx.delete(
+    resp = requests.delete(
         BLOB_API_BASE + "/",
-        content=_json.dumps({"urls": urls}).encode(),
+        data=json.dumps({"urls": urls}),
         headers={
             "Authorization": f"Bearer {token}",
             "x-api-version": "7",
