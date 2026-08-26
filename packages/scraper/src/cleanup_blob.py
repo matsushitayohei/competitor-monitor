@@ -50,9 +50,11 @@ def list_blobs(token: str, prefix: str, cursor: Optional[str] = None) -> dict:
 
 def delete_blobs(token: str, urls: list[str]) -> None:
     """指定した URL の Blob を一括削除する。"""
+    import json as _json
+
     resp = httpx.delete(
         BLOB_API_BASE + "/",
-        json={"urls": urls},
+        content=_json.dumps({"urls": urls}).encode(),
         headers={
             "Authorization": f"Bearer {token}",
             "x-api-version": "7",
