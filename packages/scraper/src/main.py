@@ -16,7 +16,6 @@ load_dotenv()
 # Add parent packages to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "analyzer", "src"))
 
-from capture import capture_page
 from diff import extract_structure, compute_diff, NORM_VERSION_MARKER
 from db import (
     get_active_pages,
@@ -30,8 +29,9 @@ from db import (
 )
 from url_fallback import find_new_detail_url
 from expired_detector import is_expired_page
-from storage import upload_screenshot
+from storage import upload_screenshot, png_to_jpeg
 from visual_diff import generate_visual_diff
+from slack_notifier import send_slack_notification
 
 # Structure extraction modules
 from structure_extractor import extract_page_structure
@@ -43,22 +43,6 @@ from structure_db import save_page_structure, get_latest_page_structure
 def compute_dom_hash(structure: str) -> str:
     """Compute a hash of the DOM structure for quick comparison."""
     return hashlib.sha256(structure.encode("utf-8")).hexdigest()
-
-
-def _png_to_jpeg(png_bytes: bytes, quality: int = 60) -> bytes:
-    """Convert PNG bytes to JPEG with the specified quality (default 60).
-
-    フルページスクショの Blob 保存量を抑えるために使用。
-    quality=60 で PNG 比 60〜80% のサイズ削減を見込む。
-    """
-    from io import BytesIO
-    from PIL import Image
-
-    buf = BytesIO()
-    Image.open(BytesIO(png_bytes)).convert("RGB").save(
-        buf, format="JPEG", quality=quality, optimize=True
-    )
-    return buf.getvalue()
 
 
 async def scan_page(page_info: dict) -> dict:
@@ -185,6 +169,7 @@ async def scan_page(page_info: dict) -> dict:
                 structure_id_before = None
         except Exception as e:
             print(f"    Structure extraction error (non-fatal): {e}")
+            traceback.print_exc()
 
         # 3. Get previous snapshot
         prev_snapshot = get_latest_snapshot(page_id)
@@ -192,7 +177,7 @@ async def scan_page(page_info: dict) -> dict:
         # 4. Save new snapshot (always, for archiving)
         # フルページスクショは JPEG に変換して Blob 保存（PNG比 60〜80% 削減）。
         # screenshotPath は次回スキャン時の visual diff 比較に必要なため継続保存する。
-        snapshot_jpeg = _png_to_jpeg(screenshot_bytes, quality=60)
+        snapshot_jpeg = png_to_jpeg(screenshot_bytes, quality=60)
         screenshot_path = upload_screenshot(snapshot_jpeg, page_id, device)
         save_snapshot(page_id, dom_hash, dom_structure, screenshot_path)
 
@@ -300,7 +285,8 @@ async def scan_page(page_info: dict) -> dict:
         if before_screenshot_path:
             try:
                 import httpx as _httpx
-                before_response = _httpx.get(before_screenshot_path, timeout=30)
+                async with _httpx.AsyncClient() as _client:
+                    before_response = await _client.get(before_screenshot_path, timeout=30)
                 if before_response.status_code == 200:
                     diff_result_obj = generate_visual_diff(
                         before_response.content,
@@ -398,20 +384,26 @@ async def capture_page_with_html(url: str, viewport_width: int, max_retries: int
         try:
             async with async_playwright() as p:
                 browser = await p.chromium.launch()
-                page = await browser.new_page(
-                    viewport={"width": viewport_width, "height": 800},
-                    user_agent=user_agent,
-                )
+                html = ""
+                screenshot = b""
+                http_status = 0
+                try:
+                    page = await browser.new_page(
+                        viewport={"width": viewport_width, "height": 800},
+                        user_agent=user_agent,
+                    )
 
-                response = await page.goto(url, wait_until="networkidle", timeout=30000)
-                http_status = response.status if response else 0
+                    response = await page.goto(url, wait_until="networkidle", timeout=30000)
+                    http_status = response.status if response else 0
 
-                # Wait for dynamic content
-                await page.wait_for_timeout(2000)
+                    # Wait for dynamic content
+                    await page.wait_for_timeout(2000)
 
-                html = await page.content()
-                screenshot = await page.screenshot(full_page=True)
-                await browser.close()
+                    html = await page.content()
+                    screenshot = await page.screenshot(full_page=True)
+                finally:
+                    # ブラウザプロセスを確実に終了（例外時のリーク防止）
+                    await browser.close()
 
             return html, screenshot, http_status
         except Exception as e:
@@ -477,235 +469,6 @@ async def main():
         await send_slack_notification(results)
 
 
-async def send_slack_notification(results: list[dict]):
-    """Send a structured Slack Block Kit notification about detected changes.
-
-    Groups changes by URL (deduplicating PC/SP/both), shows category/summary/priority,
-    and provides a link to the web dashboard.
-    """
-    import httpx
-
-    changes = [r for r in results if r["change_detected"]]
-    rotations = [r for r in results if r.get("url_rotated")]
-    no_fallback = [
-        r for r in results
-        if r["status"].endswith("_no_fallback") or r["status"] == "expired_no_valid_fallback"
-    ]
-
-    if not changes and not rotations and not no_fallback:
-        return
-
-    app_url = os.environ.get("NEXT_PUBLIC_APP_URL", "")
-    blocks: list[dict] = []
-
-    # --- Header ---
-    if changes:
-        # Deduplicate by URL (merge PC/SP/both into one entry)
-        grouped = _group_changes_by_url(changes)
-        unique_count = len(grouped)
-
-        blocks.append({
-            "type": "header",
-            "text": {
-                "type": "plain_text",
-                "text": f"🔍 競合変更レポート ({len(grouped)}箇所)",
-                "emoji": True,
-            },
-        })
-
-        # Separate by priority
-        high_priority = [g for g in grouped if g["priority"] == "high"]
-        medium_priority = [g for g in grouped if g["priority"] == "medium"]
-        low_priority = [g for g in grouped if g["priority"] == "low"]
-
-        # High priority section
-        if high_priority:
-            blocks.append({"type": "divider"})
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "*🔴 対応検討推奨*",
-                },
-            })
-            for item in high_priority:
-                blocks.append(_format_change_block(item))
-
-        # Medium priority section
-        if medium_priority:
-            blocks.append({"type": "divider"})
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "*🟡 参考情報*",
-                },
-            })
-            for item in medium_priority:
-                blocks.append(_format_change_block(item))
-
-        # Low priority (compact)
-        if low_priority:
-            blocks.append({"type": "divider"})
-            low_text = "*⚪ その他の変更*\n"
-            for item in low_priority:
-                service_display = item["service"].upper()
-                page_label = _page_type_label(item.get("page_type", ""))
-                low_text += f"• {service_display} ({page_label}): {item['summary'][:60]}\n"
-            blocks.append({
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": low_text.strip()},
-            })
-
-    # --- URL rotations ---
-    if rotations:
-        blocks.append({"type": "divider"})
-        rotation_text = f"*🔄 物件URL自動切替: {len(rotations)}件*\n"
-        for r in rotations:
-            rotation_text += f"• {r['service']} ({r['device']}): {r.get('new_url', 'N/A')}\n"
-        blocks.append({
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": rotation_text.strip()},
-        })
-
-    # --- No fallback warnings ---
-    if no_fallback:
-        blocks.append({"type": "divider"})
-        fallback_text = f"*⚠️ URL切替失敗（要手動対応）: {len(no_fallback)}件*\n"
-        for r in no_fallback:
-            fallback_text += f"• {r['service']} ({r['device']}): {r['url']}\n"
-        blocks.append({
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": fallback_text.strip()},
-        })
-
-    # --- Rendering failures (only show if significant) ---
-    rendering_failures = [r for r in results if r["status"] == "rendering_failure"]
-    if len(rendering_failures) >= len(results) * 0.3:
-        blocks.append({"type": "divider"})
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    f"*🔧 レンダリング失敗（誤検知除外）: {len(rendering_failures)}件*\n"
-                    f"ページ読み込み不完全を検知し自動スキップ。頻発する場合はスクレイパーの待機時間調整が必要。"
-                ),
-            },
-        })
-
-    # --- Footer with dashboard link ---
-    if app_url:
-        blocks.append({"type": "divider"})
-        blocks.append({
-            "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": f"📊 <{app_url}/changes|ダッシュボードで詳細を確認>",
-                },
-            ],
-        })
-
-    # --- Send ---
-    # Build fallback text for clients that don't support blocks
-    fallback_text = f"競合変更レポート: {len(changes)}件の変更を検知"
-
-    try:
-        async with httpx.AsyncClient() as client:
-            await client.post(
-                os.environ["SLACK_WEBHOOK_URL"],
-                json={"text": fallback_text, "blocks": blocks},
-                timeout=10,
-            )
-    except Exception as e:
-        print(f"Slack notification error: {e}")
-
-
-def _group_changes_by_url(changes: list[dict]) -> list[dict]:
-    """Group changes by URL, merging PC/SP/both entries into one.
-
-    Returns a list of deduplicated change summaries with merged device info.
-    """
-    from collections import OrderedDict
-
-    grouped: OrderedDict[str, dict] = OrderedDict()
-
-    for r in changes:
-        url = r["url"]
-        if url not in grouped:
-            grouped[url] = {
-                "url": url,
-                "service": r["service"],
-                "devices": [r["device"]],
-                "category": r.get("category", "OTHER"),
-                "summary": r.get("summary", "DOM構造に変更を検知"),
-                "priority": r.get("priority", "low"),
-                "page_type": r.get("page_type", ""),
-            }
-        else:
-            if r["device"] not in grouped[url]["devices"]:
-                grouped[url]["devices"].append(r["device"])
-            # Use higher priority if available
-            existing_priority = grouped[url]["priority"]
-            new_priority = r.get("priority", "low")
-            if _priority_rank(new_priority) > _priority_rank(existing_priority):
-                grouped[url]["priority"] = new_priority
-            # Prefer longer summary
-            new_summary = r.get("summary", "")
-            if new_summary and len(new_summary) > len(grouped[url]["summary"] or ""):
-                grouped[url]["summary"] = new_summary
-
-    return list(grouped.values())
-
-
-def _priority_rank(priority: str) -> int:
-    """Return numeric rank for priority comparison."""
-    return {"high": 3, "medium": 2, "low": 1}.get(priority, 0)
-
-
-def _page_type_label(page_type: str) -> str:
-    """Convert page_type to Japanese label."""
-    labels = {
-        "detail": "物件詳細",
-        "list": "一覧",
-        "top": "トップ",
-        "search": "検索結果",
-    }
-    return labels.get(page_type, page_type or "不明")
-
-
-CATEGORY_LABELS = {
-    "CRO": "CRO",
-    "AD_PRODUCT": "広告商品",
-    "SEO": "SEO",
-    "AI": "AI機能",
-    "OTHER": "その他",
-}
-
-
-def _format_change_block(item: dict) -> dict:
-    """Format a single grouped change as a Slack Block Kit section."""
-    service_display = item["service"].upper()
-    page_label = _page_type_label(item.get("page_type", ""))
-    devices = "/".join(item.get("devices", []))
-    category = CATEGORY_LABELS.get(item.get("category", "OTHER"), "その他")
-    summary = item.get("summary", "変更を検知")
-
-    # Truncate summary to keep blocks readable
-    if summary and len(summary) > 120:
-        summary = summary[:117] + "..."
-
-    text = (
-        f"*【{service_display}】{page_label}* ({devices})\n"
-        f"分類: {category}\n"
-        f"{summary}"
-    )
-
-    return {
-        "type": "section",
-        "text": {"type": "mrkdwn", "text": text},
-    }
 
 
 if __name__ == "__main__":

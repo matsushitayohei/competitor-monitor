@@ -18,6 +18,13 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('packages/scraper/requirements.txt', 'packages/analyzer/requirements.txt') }}
+          restore-keys: pip-
+
       - name: Install dependencies
         run: |
           pip install --no-cache-dir -r packages/scraper/requirements.txt

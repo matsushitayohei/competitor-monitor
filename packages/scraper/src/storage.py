@@ -7,6 +7,22 @@ from typing import Optional
 import httpx
 
 
+def png_to_jpeg(png_bytes: bytes, quality: int = 60) -> bytes:
+    """Convert PNG bytes to JPEG to reduce storage size.
+
+    quality=60 で PNG 比 60〜80% のサイズ削減を見込む。
+    スナップショットの Blob 保存量削減に使用。
+    """
+    from io import BytesIO
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.open(BytesIO(png_bytes)).convert("RGB").save(
+        buf, format="JPEG", quality=quality, optimize=True
+    )
+    return buf.getvalue()
+
+
 def _detect_content_type(image_bytes: bytes) -> tuple[str, str]:
     """Detect image format from magic bytes and return (content_type, extension)."""
     if image_bytes[:3] == b"\xff\xd8\xff":

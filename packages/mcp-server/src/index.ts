@@ -819,6 +819,18 @@ server.tool(
     dry_run: z.boolean().default(true).describe("If true, only count records without deleting"),
   },
   async ({ priority, summary_contains, before_date, dry_run }) => {
+    // 全フィルタが未指定の場合は全件削除になるため拒否する
+    if (!priority && !summary_contains && !before_date) {
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            error: "At least one filter (priority, summary_contains, or before_date) is required to prevent accidental full-table deletion.",
+          }, null, 2),
+        }],
+      };
+    }
+
     const where: any = {};
     if (before_date) {
       where.detectedAt = { lt: new Date(before_date) };
