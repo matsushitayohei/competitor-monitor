@@ -45,6 +45,22 @@ def compute_dom_hash(structure: str) -> str:
     return hashlib.sha256(structure.encode("utf-8")).hexdigest()
 
 
+def _png_to_jpeg(png_bytes: bytes, quality: int = 60) -> bytes:
+    """Convert PNG bytes to JPEG with the specified quality (default 60).
+
+    フルページスクショの Blob 保存量を抑えるために使用。
+    quality=60 で PNG 比 60〜80% のサイズ削減を見込む。
+    """
+    from io import BytesIO
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.open(BytesIO(png_bytes)).convert("RGB").save(
+        buf, format="JPEG", quality=quality, optimize=True
+    )
+    return buf.getvalue()
+
+
 async def scan_page(page_info: dict) -> dict:
     """Scan a single page and return the result."""
     page_id = page_info["page_id"]
@@ -174,7 +190,10 @@ async def scan_page(page_info: dict) -> dict:
         prev_snapshot = get_latest_snapshot(page_id)
 
         # 4. Save new snapshot (always, for archiving)
-        screenshot_path = upload_screenshot(screenshot_bytes, page_id, device)
+        # フルページスクショは JPEG に変換して Blob 保存（PNG比 60〜80% 削減）。
+        # screenshotPath は次回スキャン時の visual diff 比較に必要なため継続保存する。
+        snapshot_jpeg = _png_to_jpeg(screenshot_bytes, quality=60)
+        screenshot_path = upload_screenshot(snapshot_jpeg, page_id, device)
         save_snapshot(page_id, dom_hash, dom_structure, screenshot_path)
 
         # 5. Compare with previous
@@ -268,27 +287,38 @@ async def scan_page(page_info: dict) -> dict:
         result["page_type"] = page_type
         result["priority"] = advice_data.get("priority", "low") if advice_data else "low"
 
-        # 8. Save change to DB (with before/after screenshots)
+        # 8. Save change to DB (with before/after cropped screenshots)
         before_screenshot_path = prev_snapshot.get("screenshotPath") if prev_snapshot else None
 
-        # 8.5 Generate visual diff image (only for clear structural changes)
-        # The visual_diff module returns None for noisy/scattered changes,
-        # so the system falls back to text-based summary in the UI.
+        # 8.5 Generate visual diff + cropped before/after images
+        # generate_visual_diff() returns VisualDiffResult when structural changes are clear,
+        # or None when changes are too noisy (dynamic content).
         visual_diff_path = None
-        if before_screenshot_path and screenshot_path:
+        before_crop_path = None
+        after_crop_path = None
+
+        if before_screenshot_path:
             try:
                 import httpx as _httpx
-                # Download before screenshot for comparison
                 before_response = _httpx.get(before_screenshot_path, timeout=30)
                 if before_response.status_code == 200:
-                    diff_image_bytes = generate_visual_diff(
+                    diff_result_obj = generate_visual_diff(
                         before_response.content,
                         screenshot_bytes,
                     )
-                    if diff_image_bytes:
-                        visual_diff_path = upload_screenshot(diff_image_bytes, f"{page_id}/diff", device)
+                    if diff_result_obj is not None:
+                        # Upload cropped before/after (変更箇所のみ — 数十KBに抑えられる)
+                        before_crop_path = upload_screenshot(
+                            diff_result_obj.before_crop, f"{page_id}/before", device
+                        )
+                        after_crop_path = upload_screenshot(
+                            diff_result_obj.after_crop, f"{page_id}/after", device
+                        )
+                        visual_diff_path = upload_screenshot(
+                            diff_result_obj.diff_image, f"{page_id}/diff", device
+                        )
                         if visual_diff_path:
-                            print(f"    Visual diff generated (clear structural change detected)")
+                            print(f"    Visual diff generated (crops: before={before_crop_path is not None}, after={after_crop_path is not None})")
                     else:
                         print(f"    Visual diff skipped (no clear structural changes, relying on text summary)")
             except Exception as e:
@@ -301,8 +331,8 @@ async def scan_page(page_info: dict) -> dict:
             category=category,
             summary=summary,
             diff_text=diff_text[:10000],  # Limit diff text size
-            before_screenshot_path=before_screenshot_path,
-            after_screenshot_path=screenshot_path,
+            before_screenshot_path=before_crop_path,   # 変更箇所クロップ（before）
+            after_screenshot_path=after_crop_path,     # 変更箇所クロップ（after）
             visual_diff_path=visual_diff_path,
             structure_before_id=structure_id_before,
             structure_after_id=structure_id_after,

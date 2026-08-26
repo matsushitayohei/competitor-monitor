@@ -10,6 +10,7 @@ If the diff would be mostly noise (too many scattered small changes), this modul
 returns None and the system relies on the text-based DOM diff summary instead.
 """
 
+from dataclasses import dataclass
 from io import BytesIO
 from typing import Optional
 
@@ -24,12 +25,49 @@ _MIN_REGION_AREA = 3000     # Relaxed: ~55x55px以上で表示（旧: 5000=70x70
 _MAX_REGIONS = 15           # Relaxed: 最大15領域まで許容（旧: 5）
 _MIN_REGION_CONCENTRATION = 0.01  # Relaxed: 1%以上に緩和（旧: 2%）
 
+# Padding (px) added around each cropped change region
+_CROP_PADDING = 40
+
+
+@dataclass
+class VisualDiffResult:
+    """Result of a visual diff analysis.
+
+    Attributes:
+        diff_image: Full-page JPEG annotated with red rectangles over changed areas.
+        before_crop: Merged JPEG crop from the before image covering all change regions.
+        after_crop: Merged JPEG crop from the after image covering all change regions.
+        regions: Bounding boxes [(x1,y1,x2,y2)] of detected change areas.
+    """
+    diff_image: bytes
+    before_crop: bytes
+    after_crop: bytes
+    regions: list[tuple[int, int, int, int]]
+
+
+def _encode_jpeg(img: Image.Image, quality: int = 80) -> bytes:
+    """Encode a PIL image as JPEG and return bytes."""
+    buf = BytesIO()
+    img.convert("RGB").save(buf, format="JPEG", quality=quality, optimize=True)
+    return buf.getvalue()
+
+
+def _merged_crop(img: Image.Image, regions: list[tuple[int, int, int, int]]) -> bytes:
+    """Return a single JPEG crop that covers the union of all change regions (with padding)."""
+    w, h = img.size
+    pad = _CROP_PADDING
+    x1 = max(0, min(r[0] for r in regions) - pad)
+    y1 = max(0, min(r[1] for r in regions) - pad)
+    x2 = min(w, max(r[2] for r in regions) + pad)
+    y2 = min(h, max(r[3] for r in regions) + pad)
+    return _encode_jpeg(img.crop((x1, y1, x2, y2)))
+
 
 def generate_visual_diff(
     before_bytes: bytes,
     after_bytes: bytes,
     mask_regions: Optional[list[tuple[int, int, int, int]]] = None,
-) -> Optional[bytes]:
+) -> Optional[VisualDiffResult]:
     """Generate a visual diff ONLY when changes are clearly structural.
 
     Returns None (no diff image) when:
@@ -43,7 +81,8 @@ def generate_visual_diff(
         mask_regions: Ignored (kept for API compatibility, masking approach deprecated).
 
     Returns:
-        PNG bytes of the diff image, or None if changes are noisy/insignificant.
+        VisualDiffResult with diff_image, before_crop, after_crop, and regions;
+        or None if changes are noisy/insignificant.
     """
     try:
         before_img = Image.open(BytesIO(before_bytes)).convert("RGB")
@@ -91,20 +130,31 @@ def generate_visual_diff(
         if total_change_area / total_image_area < _MIN_REGION_CONCENTRATION:
             return None
 
-        # Passed all filters: generate the annotated image
-        result = after_img.copy().convert("RGBA")
-        overlay = Image.new("RGBA", result.size, (0, 0, 0, 0))
+        # Passed all filters: generate the annotated diff image (full-page with red rectangles)
+        annotated = after_img.copy().convert("RGBA")
+        overlay = Image.new("RGBA", annotated.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
 
         for (x1, y1, x2, y2) in regions:
             draw.rectangle([x1, y1, x2, y2], fill=(255, 0, 0, 35), outline=(255, 50, 50, 200), width=3)
 
-        result = Image.alpha_composite(result, overlay)
-        result = result.convert("RGB")
+        annotated = Image.alpha_composite(annotated, overlay).convert("RGB")
 
-        output = BytesIO()
-        result.save(output, format="PNG", optimize=True)
-        return output.getvalue()
+        diff_output = BytesIO()
+        # Use JPEG for the full-page diff image to save space
+        annotated.save(diff_output, format="JPEG", quality=75, optimize=True)
+
+        # Generate merged crops (single bounding-box covering all changed regions)
+        # before_img may have been resized above, so use the current objects
+        before_crop_bytes = _merged_crop(before_img, regions)
+        after_crop_bytes = _merged_crop(after_img, regions)
+
+        return VisualDiffResult(
+            diff_image=diff_output.getvalue(),
+            before_crop=before_crop_bytes,
+            after_crop=after_crop_bytes,
+            regions=regions,
+        )
 
     except Exception as e:
         print(f"    [VisualDiff] Failed to generate diff: {e}")

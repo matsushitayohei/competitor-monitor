@@ -7,49 +7,55 @@ from typing import Optional
 import httpx
 
 
-def upload_screenshot(screenshot_bytes: bytes, page_id: str, device: str) -> Optional[str]:
-    """Upload a screenshot to Vercel Blob and return the URL.
+def _detect_content_type(image_bytes: bytes) -> tuple[str, str]:
+    """Detect image format from magic bytes and return (content_type, extension)."""
+    if image_bytes[:3] == b"\xff\xd8\xff":
+        return "image/jpeg", "jpg"
+    if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png", "png"
+    # デフォルトは JPEG (クロップ画像はJPEG変換済み)
+    return "image/jpeg", "jpg"
 
-    Uses the Vercel Blob REST API. Supports both public and private stores.
-    For private stores, the token determines access and the API returns a
-    private URL that requires authentication to read.
+
+def upload_screenshot(image_bytes: bytes, page_id: str, device: str) -> Optional[str]:
+    """Upload a screenshot or cropped image to Vercel Blob and return the URL.
+
+    フォーマットはマジックバイトで自動判定（PNG / JPEG）。
+    クロップ画像は visual_diff.py で JPEG に変換済みのため、
+    PNGより大幅にサイズが小さい状態でアップロードされる。
 
     Args:
-        screenshot_bytes: PNG image bytes.
-        page_id: MonitoredPage ID for path naming.
-        device: Device type (pc/sp).
+        image_bytes: PNG または JPEG の画像バイト列。
+        page_id: MonitoredPage ID（パス名に使用）。
+        device: デバイス種別（pc / sp）。
 
     Returns:
-        The URL of the uploaded blob, or None on failure.
+        アップロードされた Blob の URL。失敗時は None。
     """
     token = os.environ.get("BLOB_READ_WRITE_TOKEN")
     if not token:
         print(f"    [Storage] BLOB_READ_WRITE_TOKEN is not set, skipping screenshot upload")
         return None
 
-    print(f"    [Storage] Uploading screenshot ({len(screenshot_bytes)} bytes)...")
-
+    content_type, ext = _detect_content_type(image_bytes)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    pathname = f"screenshots/{page_id}/{device}_{timestamp}.png"
+    pathname = f"screenshots/{page_id}/{device}_{timestamp}.{ext}"
+
+    print(f"    [Storage] Uploading {ext.upper()} ({len(image_bytes):,} bytes) → {pathname}")
 
     try:
-        # Vercel Blob REST API requires the pathname in the URL path
-        # and the token as Bearer auth. The x-api-version header is required.
-        # For private stores, must also pass x-access: "private".
         url = f"https://blob.vercel-storage.com/{pathname}"
 
         headers = {
             "Authorization": f"Bearer {token}",
             "x-api-version": "7",
-            "x-content-type": "image/png",
+            "x-content-type": content_type,
             "x-add-random-suffix": "1",
         }
 
-        # Public store - no x-access header needed (defaults to public)
-
         response = httpx.put(
             url,
-            content=screenshot_bytes,
+            content=image_bytes,
             headers=headers,
             timeout=60,
         )
@@ -59,9 +65,9 @@ def upload_screenshot(screenshot_bytes: bytes, page_id: str, device: str) -> Opt
         print(f"    [Storage] Upload success: {result_url[:80] if result_url else 'no url in response'}...")
         return result_url
     except httpx.HTTPStatusError as e:
-        print(f"    [Storage] Screenshot upload failed: {e}")
+        print(f"    [Storage] Upload failed: {e}")
         print(f"    [Storage] Response body: {e.response.text[:500]}")
         return None
     except Exception as e:
-        print(f"    [Storage] Screenshot upload failed: {e}")
+        print(f"    [Storage] Upload failed: {e}")
         return None
