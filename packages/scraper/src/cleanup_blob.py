@@ -42,18 +42,28 @@ def list_blobs(token: str, prefix: str, cursor: Optional[str] = None) -> dict:
 
 
 def delete_blobs(token: str, urls: list[str]) -> None:
-    """指定した URL の Blob を一括削除する。"""
-    resp = requests.delete(
-        BLOB_API_BASE + "/",
-        data=json.dumps({"urls": urls}),
-        headers={
-            "Authorization": f"Bearer {token}",
-            "x-api-version": "7",
-            "Content-Type": "application/json",
-        },
+    """指定した URL の Blob を一括削除する。
+
+    Vercel Blob は DELETE / に JSON body を渡す方式と
+    POST /delete に渡す方式の両方を持つ。まず DELETE を試みる。
+    """
+    body = json.dumps({"urls": urls}).encode()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "x-api-version": "7",
+        "Content-Type": "application/json",
+    }
+
+    # POST /delete エンドポイント（より確実）
+    resp = requests.post(
+        BLOB_API_BASE + "/delete",
+        data=body,
+        headers=headers,
         timeout=60,
     )
-    resp.raise_for_status()
+    if not resp.ok:
+        print(f"    [delete] POST /delete → {resp.status_code}: {resp.text[:300]}")
+        resp.raise_for_status()
 
 
 def run(dry_run: bool = False) -> None:
@@ -75,7 +85,7 @@ def run(dry_run: bool = False) -> None:
         page += 1
         try:
             result = list_blobs(token, TARGET_PREFIX, cursor)
-        except httpx.HTTPStatusError as e:
+        except requests.HTTPError as e:
             print(f"ERROR listing blobs (page {page}): {e}")
             print(f"  Response: {e.response.text[:500]}")
             sys.exit(1)
@@ -121,7 +131,7 @@ def run(dry_run: bool = False) -> None:
             delete_blobs(token, batch)
             deleted += len(batch)
             print(f"  Deleted batch {i // DELETE_BATCH_SIZE + 1}: {deleted}/{len(all_urls)} files")
-        except httpx.HTTPStatusError as e:
+        except requests.HTTPError as e:
             failed += len(batch)
             print(f"  ERROR deleting batch {i // DELETE_BATCH_SIZE + 1}: {e}")
             print(f"    Response: {e.response.text[:300]}")
