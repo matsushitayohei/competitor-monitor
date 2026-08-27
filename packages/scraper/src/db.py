@@ -227,3 +227,38 @@ def get_list_page_for_service(service_id: str) -> Optional[dict]:
             return dict(row) if row else None
     finally:
         release_connection(conn)
+
+
+def is_duplicate_change(page_id: str, diff_text: str) -> bool:
+    """Return True if the most recent Change for this page has the same diff text.
+
+    Prevents saving identical back-to-back changes caused by transient rendering
+    inconsistencies (e.g. an SPA section that sometimes renders and sometimes does
+    not, producing the same diff on alternating days).
+
+    Args:
+        page_id: The monitored page ID.
+        diff_text: The newly computed diff text to compare.
+
+    Returns:
+        True when the latest existing change for this page has an identical
+        diffText, meaning the change should be skipped as a duplicate.
+    """
+    if not diff_text:
+        return False
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT "diffText"
+                FROM "Change"
+                WHERE "pageId" = %s
+                ORDER BY "detectedAt" DESC
+                LIMIT 1
+            """, (page_id,))
+            row = cur.fetchone()
+            if row and row[0] == diff_text:
+                return True
+            return False
+    finally:
+        release_connection(conn)

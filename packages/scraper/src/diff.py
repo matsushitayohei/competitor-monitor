@@ -333,3 +333,63 @@ def compute_diff(old_structure: str, new_structure: str) -> Optional[dict]:
         "old_length": len(old_structure),
         "new_length": len(new_structure),
     }
+
+
+# ──────────────────────────────────────────────────────────────────
+# Access-blocked page detection
+# ──────────────────────────────────────────────────────────────────
+
+# GeeTest / reCAPTCHA / Cloudflare challenge の指紋
+_CAPTCHA_PATTERNS = [
+    # GeeTest（athome で確認）
+    r'geetest_holder',
+    r'geetest_radar',
+    r'static\.geetest\.com',
+    # reCAPTCHA
+    r'<div[^>]*class="g-recaptcha"',
+    r'www\.google\.com/recaptcha',
+    # hCaptcha
+    r'<div[^>]*class="h-captcha"',
+    r'hcaptcha\.com',
+    # Cloudflare challenge
+    r'cf-browser-verification',
+    r'cf_clearance',
+    r'Checking your browser',
+    r'cf-challenge',
+    # 汎用：認証要求の日本語メッセージ
+    r'認証にご協力ください',
+    r'ロボットによるアクセスと判断',
+    r'アクセスが一時的に制限',
+]
+
+_CAPTCHA_RE = re.compile('|'.join(_CAPTCHA_PATTERNS), re.IGNORECASE)
+
+
+def detect_access_blocked_page(html: str) -> str | None:
+    """Detect CAPTCHA / bot-challenge pages that return HTTP 200 but no real content.
+
+    Returns a short reason string when a challenge page is detected, or None if
+    the page appears to contain genuine content.
+
+    This prevents saving CAPTCHA snapshots as baseline and issuing spurious
+    "no change" verdicts when the site is always blocking the scraper.
+
+    Args:
+        html: Raw HTML of the fetched page.
+
+    Returns:
+        A reason string (e.g. 'GeeTest CAPTCHA') or None.
+    """
+    match = _CAPTCHA_RE.search(html)
+    if match:
+        matched_text = match.group(0)
+        if 'geetest' in matched_text.lower():
+            return 'GeeTest CAPTCHA'
+        if 'recaptcha' in matched_text.lower():
+            return 'reCAPTCHA'
+        if 'hcaptcha' in matched_text.lower():
+            return 'hCaptcha'
+        if 'cf-' in matched_text.lower() or 'Checking' in matched_text:
+            return 'Cloudflare challenge'
+        return f'access challenge ({matched_text[:40]})'
+    return None

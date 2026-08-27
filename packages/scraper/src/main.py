@@ -16,7 +16,7 @@ load_dotenv()
 # Add parent packages to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "analyzer", "src"))
 
-from diff import extract_structure, compute_diff, NORM_VERSION_MARKER
+from diff import extract_structure, compute_diff, NORM_VERSION_MARKER, detect_access_blocked_page
 from db import (
     get_active_pages,
     get_latest_snapshot,
@@ -26,6 +26,7 @@ from db import (
     update_page_scan_status,
     update_page_url,
     get_list_page_for_service,
+    is_duplicate_change,
 )
 from url_fallback import find_new_detail_url
 from expired_detector import is_expired_page
@@ -120,6 +121,15 @@ async def scan_page(page_info: dict) -> dict:
                 result["status"] = "expired_no_fallback"
                 print(f"    No fallback URL available for expired page - skipping")
                 return result
+
+        # 1.6. Check for CAPTCHA / bot-challenge pages (HTTP 200 but real content not delivered)
+        # These pages have identical structure every time (same hash), so they silently
+        # suppress change detection for the service. Skip snapshot/diff and report the block.
+        blocked_reason = detect_access_blocked_page(html)
+        if blocked_reason:
+            print(f"    ⚠️ Access blocked ({blocked_reason}) — skipping snapshot to avoid polluting baseline")
+            result["status"] = f"captcha_blocked: {blocked_reason}"
+            return result
 
         # 2. Extract DOM structure (removing property-specific content)
         dom_structure = extract_structure(html)
@@ -227,44 +237,60 @@ async def scan_page(page_info: dict) -> dict:
 
         diff_text = diff_result.get("diff_text", "")
 
+        # 6.5. Duplicate diff guard: skip if the diff is identical to the most recent
+        # recorded change for this page. This prevents repeated storage of the same
+        # transient rendering inconsistency (e.g. an SPA section toggling on/off daily).
+        if is_duplicate_change(page_id, diff_text[:10000]):
+            print(f"    Duplicate diff — identical to previous change, skipping")
+            result["change_detected"] = False
+            result["status"] = "duplicate_diff"
+            return result
+
         # 7. Classify and summarize using rule-based analysis
         category = None
         summary = None
         advice_data = None
 
+        # 7a. Summarize — extract human/AI-readable description from diff
         try:
-            from classify import classify_change
             from summarize import summarize_change
-            from advice import generate_advice
-
-            # Summarize
             summary = summarize_change(diff_text[:8000])
             print(f"    Summary: {summary[:100]}...")
+        except Exception as e:
+            print(f"    Summarize error (non-fatal): {e}")
+            summary = "DOM構造に変更を検知しました"
 
-            # Classify
+        # 7b. Classify — assign category using rule-based pattern matching
+        try:
+            from classify import classify_change
             classify_result = classify_change(diff_text[:8000])
             try:
                 classify_json = json.loads(classify_result)
                 category = classify_json.get("category", "OTHER")
             except (json.JSONDecodeError, TypeError):
                 category = "OTHER"
+        except Exception as e:
+            print(f"    Classify error (non-fatal): {e}")
+            category = "OTHER"
 
-            # Generate placeholder advice (detailed analysis via MCP + Kiro)
+        # 7c. Generate structured advice (placeholder + priority/scale heuristics)
+        try:
+            from advice import generate_advice
             advice_response = generate_advice(
                 service_name=service_name,
                 page_type=page_type,
                 category=category or "OTHER",
                 diff_summary=summary or diff_text[:2000],
+                additions=diff_result.get("additions", 0),
+                deletions=diff_result.get("deletions", 0),
             )
             try:
                 advice_data = json.loads(advice_response)
             except (json.JSONDecodeError, TypeError):
                 advice_data = {"proposal": "MCP経由でKiroに分析を依頼してください", "priority": "medium"}
-
         except Exception as e:
-            print(f"    Analysis error: {e}")
-            category = "OTHER"
-            summary = "DOM構造に変更を検知しました"
+            print(f"    Advice error (non-fatal): {e}")
+            advice_data = {"proposal": "MCP経由でKiroに分析を依頼してください", "priority": "low"}
 
         # Store analysis results in the result dict for notification
         result["category"] = category
@@ -443,10 +469,14 @@ async def main():
     first_scans = sum(1 for r in results if r["status"] == "first_scan")
     rendering_failures = sum(1 for r in results if r["status"] == "rendering_failure")
     baseline_resets = sum(1 for r in results if r["status"] == "baseline_reset")
+    captcha_blocked = sum(1 for r in results if r["status"].startswith("captcha_blocked"))
+    duplicate_diffs = sum(1 for r in results if r["status"] == "duplicate_diff")
 
     print(f"\n[{datetime.now().isoformat()}] Scan complete.")
     print(f"  Total: {total}, Changes: {changes}, First scans: {first_scans}, "
           f"Baseline resets: {baseline_resets}, "
+          f"Duplicate diffs: {duplicate_diffs}, "
+          f"CAPTCHA blocked: {captcha_blocked}, "
           f"Errors: {errors}, Rendering failures: {rendering_failures}")
 
     # Fail the job if majority of pages errored (so GitHub Actions shows failure)
@@ -464,6 +494,7 @@ async def main():
         or any(r["status"].endswith("_no_fallback") for r in results)
         or any(r["status"] == "expired_no_valid_fallback" for r in results)
         or rendering_failures >= total * 0.3  # Alert if 30%+ pages had rendering failures
+        or captcha_blocked >= total * 0.1     # Alert if 10%+ pages are CAPTCHA-blocked
     )
     if has_notifications and os.environ.get("SLACK_WEBHOOK_URL"):
         await send_slack_notification(results)
