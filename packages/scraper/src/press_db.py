@@ -141,6 +141,92 @@ def get_pending_articles(source_id: Optional[str] = None) -> list[dict]:
         release_connection(conn)
 
 
+def get_incomplete_article(source_id: str, article_url: str) -> Optional[dict]:
+    """Fetch an existing article whose body text was never captured.
+
+    Used during scraping to recover articles that were saved previously but
+    have an empty/missing bodyText (e.g. the article-body fetch timed out).
+    Such articles are still "pending" (their classification could not be
+    confirmed without a body), so re-fetching the body lets the pipeline
+    classify and summarize them on the next run.
+
+    Args:
+        source_id: The press source ID.
+        article_url: The article URL to look up.
+
+    Returns:
+        Dict with keys id, article_url if a body-less article exists for the
+        given source/URL, otherwise None.
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT
+                    id,
+                    "articleUrl" as article_url
+                FROM press_article
+                WHERE "sourceId" = %s
+                  AND "articleUrl" = %s
+                  AND "deletedAt" IS NULL
+                  AND ("bodyText" IS NULL OR "bodyText" = '')
+                LIMIT 1
+            """, (source_id, article_url))
+            row = cur.fetchone()
+            return dict(row) if row else None
+    finally:
+        release_connection(conn)
+
+
+def update_article_body(
+    article_id: str,
+    body_text: str,
+    published_at: Optional[str] = None,
+) -> None:
+    """Update the body text (and optionally published date) of an article.
+
+    Resets classification back to 'pending' so the processing stage picks the
+    article up again and runs classify/summarize with the recovered body.
+
+    Args:
+        article_id: The article ID to update.
+        body_text: The re-fetched body text.
+        published_at: Optional ISO date string to fill in if it was missing.
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            if published_at:
+                cur.execute("""
+                    UPDATE press_article
+                    SET "bodyText" = %s,
+                        "publishedAt" = COALESCE("publishedAt", %s),
+                        classification = 'pending',
+                        "updatedAt" = %s
+                    WHERE id = %s
+                """, (
+                    body_text,
+                    published_at,
+                    datetime.now(timezone.utc),
+                    article_id,
+                ))
+            else:
+                cur.execute("""
+                    UPDATE press_article
+                    SET "bodyText" = %s,
+                        classification = 'pending',
+                        "updatedAt" = %s
+                    WHERE id = %s
+                """, (
+                    body_text,
+                    datetime.now(timezone.utc),
+                    article_id,
+                ))
+            conn.commit()
+    finally:
+        release_connection(conn)
+
+
 def update_article_classification(
     article_id: str,
     classification: str,

@@ -103,6 +103,7 @@ async def process_pending_articles() -> dict:
         "classified": 0,
         "summarized": 0,
         "notified": 0,
+        "skipped_empty_body": 0,
         "errors": 0,
     }
 
@@ -115,6 +116,18 @@ async def process_pending_articles() -> dict:
         body = article.get("body_text", "") or ""
 
         try:
+            # Guard: if body text was not captured, keep the article "pending"
+            # so a later scrape can re-fetch the body. Confirming the
+            # classification here would drop the article out of the pending
+            # queue permanently, leaving summary=null with no chance to recover.
+            if not body.strip():
+                stats["skipped_empty_body"] += 1
+                logger.warning(
+                    f"  Empty body for '{title[:50]}' (id={article_id}). "
+                    "Keeping as pending for re-fetch on next scrape."
+                )
+                continue
+
             # Step 1: Classify
             result = classify_press_article(title, body)
 
@@ -234,6 +247,7 @@ async def main() -> None:
     logger.info(f"  Articles classified:     {process_stats['classified']}")
     logger.info(f"  Articles summarized:     {process_stats['summarized']}")
     logger.info(f"  Notifications sent:      {process_stats['notified']}")
+    logger.info(f"  Skipped (empty body):    {process_stats['skipped_empty_body']}")
     logger.info(f"  Total errors:            {total_errors}")
     logger.info("=" * 60)
 

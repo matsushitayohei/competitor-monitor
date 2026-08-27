@@ -25,7 +25,13 @@ from playwright.async_api import (
 )
 from playwright_stealth import stealth_async
 
-from press_db import get_active_press_sources, article_exists, save_press_article
+from press_db import (
+    get_active_press_sources,
+    article_exists,
+    save_press_article,
+    get_incomplete_article,
+    update_article_body,
+)
 from press_parsers import get_parser_for_source
 
 logger = logging.getLogger(__name__)
@@ -226,6 +232,28 @@ async def scrape_press_source(page: Page, source: dict) -> list[dict]:
 
         # Check for duplicates
         if article_exists(source_id, article_url):
+            # An article may already exist but have an empty body (a previous
+            # body fetch failed). Recover it by re-fetching the body instead of
+            # skipping, so it can be classified/summarized on the next run.
+            incomplete = get_incomplete_article(source_id, article_url)
+            if incomplete:
+                await asyncio.sleep(INTER_REQUEST_DELAY)
+                body_text, page_published_at = await fetch_article_body(
+                    page, article_url, parser
+                )
+                if body_text and body_text.strip():
+                    published_at = article.get("published_at") or page_published_at
+                    update_article_body(
+                        incomplete["id"], body_text, published_at
+                    )
+                    logger.info(
+                        f"  Recovered body for existing article: {article_title[:60]}"
+                    )
+                else:
+                    logger.warning(
+                        f"  Body still empty on re-fetch, will retry next run: "
+                        f"{article_title[:60]}"
+                    )
             continue
 
         # Inter-request delay before fetching article body
