@@ -38,6 +38,9 @@ model MonitoredPage {
   snapshots     Snapshot[]
   changes       Change[]
   structures    PageStructure[]
+
+  @@index([serviceId])
+  @@index([isActive])
 }
 
 model Snapshot {
@@ -76,6 +79,7 @@ model Change {
   @@index([serviceName])
   @@index([category])
   @@index([isReviewed])
+  @@index([pageId])
 }
 
 model Advice {
@@ -135,6 +139,7 @@ model PressArticle {
   @@index([sourceId])
   @@index([classification])
   @@index([relevanceCategory])
+  @@index([needsManualReview])
   @@map("press_article")
 }
 
@@ -153,6 +158,7 @@ model PressInsight {
   updatedAt        DateTime @updatedAt
   article          PressArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
 
+  @@index([articleId])
   @@index([insightType])
   @@index([priority])
   @@index([status])

@@ -54,7 +54,7 @@ async def notify_source_failure(error: dict) -> None:
     webhook_url = get_webhook_url()
     if not webhook_url:
         logger.warning(
-            "PRESS_SLACK_WEBHOOK_URL not configured. Cannot send source failure notification."
+            "SLACK_WEBHOOK_URL not configured. Cannot send source failure notification."
         )
         return
 
@@ -131,9 +131,18 @@ async def process_pending_articles() -> dict:
             # Step 1: Classify
             result = classify_press_article(title, body)
 
-            classification = "relevant" if result.is_relevant else "irrelevant"
             if result.category == "classification_failed":
-                classification = "classification_failed"
+                # Keep classification as 'pending' so the next pipeline run retries.
+                # Permanently setting 'classification_failed' would exclude the article
+                # from get_pending_articles() forever, losing it silently.
+                stats["errors"] += 1
+                logger.warning(
+                    f"  Classification failed for '{title[:50]}' (id={article_id}). "
+                    "Keeping as pending for retry on next run."
+                )
+                continue
+
+            classification = "relevant" if result.is_relevant else "irrelevant"
 
             update_article_classification(
                 article_id=article_id,

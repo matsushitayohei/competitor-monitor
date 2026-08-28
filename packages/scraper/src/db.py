@@ -52,8 +52,9 @@ def release_connection(conn):
     """Return a connection to the pool."""
     try:
         _get_pool().putconn(conn)
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Failed to return connection to pool: %s", e)
 
 
 def get_active_pages() -> list[dict]:
@@ -114,6 +115,9 @@ def save_snapshot(page_id: str, dom_hash: str, dom_structure: str, screenshot_pa
             """, (snapshot_id, page_id, screenshot_path, dom_hash, dom_structure, datetime.now(timezone.utc)))
             conn.commit()
         return snapshot_id
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         release_connection(conn)
 
@@ -141,6 +145,9 @@ def save_change(page_id: str, service_name: str, page_type: str, category: Optio
                   structure_before_id, structure_after_id, datetime.now(timezone.utc)))
             conn.commit()
         return change_id
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         release_connection(conn)
 
@@ -168,6 +175,9 @@ def save_advice(change_id: str, advice_data: dict) -> str:
             ))
             conn.commit()
         return advice_id
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         release_connection(conn)
 
@@ -183,6 +193,9 @@ def update_page_scan_status(page_id: str, status: int):
                 WHERE id = %s
             """, (datetime.now(timezone.utc), status, datetime.now(timezone.utc), page_id))
             conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         release_connection(conn)
 
@@ -198,6 +211,9 @@ def update_page_url(page_id: str, new_url: str):
                 WHERE id = %s
             """, (new_url, datetime.now(timezone.utc), page_id))
             conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         release_connection(conn)
 

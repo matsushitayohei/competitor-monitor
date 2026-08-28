@@ -17,6 +17,7 @@ load_dotenv()
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "analyzer", "src"))
 
 from diff import extract_structure, compute_diff, NORM_VERSION_MARKER, detect_access_blocked_page
+from constants import USER_AGENT, VIEWPORT_HEIGHT
 from db import (
     get_active_pages,
     get_latest_snapshot,
@@ -404,11 +405,7 @@ async def capture_page_with_html(url: str, viewport_width: int, max_retries: int
     from playwright.async_api import async_playwright
 
     # Use a realistic User-Agent to avoid bot detection (e.g. at home returns HTTP 405)
-    user_agent = (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/128.0.0.0 Safari/537.36"
-    )
+    user_agent = USER_AGENT
 
     last_error = None
     for attempt in range(max_retries + 1):

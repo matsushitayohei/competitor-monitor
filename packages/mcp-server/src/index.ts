@@ -17,11 +17,31 @@ const server = new McpServer({
   version: "1.0.0",
 });
 
+/**
+ * Wraps a tool handler with try-catch so that uncaught Prisma/runtime errors
+ * return a structured JSON error response instead of crashing the MCP process.
+ */
+function safeHandler<T extends Record<string, unknown>>(
+  fn: (args: T) => Promise<{ content: Array<{ type: string; text: string }> }>
+): (args: T) => Promise<{ content: Array<{ type: string; text: string }> }> {
+  return async (args: T) => {
+    try {
+      return await fn(args);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[MCP tool error]", message);
+      return {
+        content: [{ type: "text", text: JSON.stringify({ error: `Internal error: ${message}` }) }],
+      };
+    }
+  };
+}
+
 server.tool(
   "get_recent_changes",
   "Get competitor UI/UX changes from the last N days",
-  { days: z.number().default(7).describe("Number of days to look back") },
-  async ({ days }) => {
+  { days: z.number().min(1).max(365).default(7).describe("Number of days to look back") },
+  safeHandler(async ({ days }) => {
     const since = new Date();
     since.setDate(since.getDate() - days);
     const changes = await prisma.change.findMany({
@@ -30,28 +50,28 @@ server.tool(
       include: { advice: true },
     });
     return { content: [{ type: "text", text: JSON.stringify(changes, null, 2) }] };
-  }
+  })
 );
 
 server.tool(
   "get_change_detail",
   "Get detailed information about a specific change including AI advice",
   { change_id: z.string().describe("The ID of the change to retrieve") },
-  async ({ change_id }) => {
+  safeHandler(async ({ change_id }) => {
     const change = await prisma.change.findUnique({
       where: { id: change_id },
       include: { advice: true, page: { include: { service: true } } },
     });
     if (!change) return { content: [{ type: "text", text: "Change not found" }] };
     return { content: [{ type: "text", text: JSON.stringify(change, null, 2) }] };
-  }
+  })
 );
 
 server.tool(
   "get_competitor_summary",
   "Get a summary of changes for a specific competitor service",
   { service_name: z.string().describe("Service name: suumo, athome, or canary") },
-  async ({ service_name }) => {
+  safeHandler(async ({ service_name }) => {
     const changes = await prisma.change.findMany({
       where: { serviceName: service_name },
       orderBy: { detectedAt: "desc" },
@@ -59,7 +79,7 @@ server.tool(
       select: { category: true, detectedAt: true, summary: true },
     });
     return { content: [{ type: "text", text: JSON.stringify(changes, null, 2) }] };
-  }
+  })
 );
 
 server.tool(
@@ -69,7 +89,7 @@ server.tool(
     category: z.enum(["CRO", "AD_PRODUCT", "SEO", "AI", "OTHER"]).optional(),
     keyword: z.string().optional().describe("Search keyword in change summary"),
   },
-  async ({ category, keyword }) => {
+  safeHandler(async ({ category, keyword }) => {
     const changes = await prisma.change.findMany({
       where: {
         ...(category && { category }),
@@ -79,14 +99,14 @@ server.tool(
       take: 20,
     });
     return { content: [{ type: "text", text: JSON.stringify(changes, null, 2) }] };
-  }
+  })
 );
 
 server.tool(
   "get_unanalyzed_changes",
   "Get changes that have not been analyzed by Kiro yet (advice.proposal contains 'MCP経由')",
   { limit: z.number().default(10).describe("Max number of changes to return") },
-  async ({ limit }) => {
+  safeHandler(async ({ limit }) => {
     const changes = await prisma.change.findMany({
       where: {
         advice: {
@@ -101,14 +121,14 @@ server.tool(
       },
     });
     return { content: [{ type: "text", text: JSON.stringify(changes, null, 2) }] };
-  }
+  })
 );
 
 server.tool(
   "get_change_diff",
   "Get the full DOM diff text for a change (for Kiro to analyze)",
   { change_id: z.string().describe("The ID of the change") },
-  async ({ change_id }) => {
+  safeHandler(async ({ change_id }) => {
     const change = await prisma.change.findUnique({
       where: { id: change_id },
       select: {
@@ -124,7 +144,7 @@ server.tool(
     });
     if (!change) return { content: [{ type: "text", text: "Change not found" }] };
     return { content: [{ type: "text", text: JSON.stringify(change, null, 2) }] };
-  }
+  })
 );
 
 server.tool(
@@ -139,7 +159,7 @@ server.tool(
     expected_effect: z.string().optional().describe("Expected impact if adopted"),
     risks: z.string().optional().describe("Potential risks or concerns"),
   },
-  async ({ change_id, summary, intent, proposal, priority, expected_effect, risks }) => {
+  safeHandler(async ({ change_id, summary, intent, proposal, priority, expected_effect, risks }) => {
     const existing = await prisma.advice.findUnique({
       where: { changeId: change_id },
     });
@@ -164,7 +184,7 @@ server.tool(
       });
       return { content: [{ type: "text", text: `Advice created: ${created.id}` }] };
     }
-  }
+  })
 );
 
 // --- Press Release Monitor Tools ---
@@ -182,7 +202,7 @@ server.tool(
       .describe("Relevance category"),
     limit: z.number().min(1).max(100).default(20).describe("Maximum results (1-100)"),
   },
-  async ({ source_name, date_from, date_to, category, limit }) => {
+  safeHandler(async ({ source_name, date_from, date_to, category, limit }) => {
     // Validate date_from format
     if (date_from !== undefined) {
       const dateFromParsed = Date.parse(date_from);
@@ -281,7 +301,7 @@ server.tool(
     }));
 
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  }
+  })
 );
 
 server.tool(
@@ -291,7 +311,7 @@ server.tool(
     source_name: z.string().describe("Name of the press source"),
     count: z.number().min(1).max(50).default(10).describe("Number of articles to return (1-50)"),
   },
-  async ({ source_name, count }) => {
+  safeHandler(async ({ source_name, count }) => {
     // Find source by name
     const source = await prisma.pressSource.findFirst({
       where: { name: source_name, deletedAt: null },
@@ -334,21 +354,21 @@ server.tool(
     }));
 
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  }
+  })
 );
 
 server.tool(
   "list_press_sources",
   "List all registered press release sources with their active status",
   {},
-  async () => {
+  safeHandler(async () => {
     const sources = await prisma.pressSource.findMany({
       where: { deletedAt: null },
       orderBy: { createdAt: "asc" },
       select: { id: true, name: true, url: true, isActive: true, createdAt: true },
     });
     return { content: [{ type: "text", text: JSON.stringify(sources, null, 2) }] };
-  }
+  })
 );
 
 // --- Press Insight Tools ---
@@ -371,7 +391,7 @@ server.tool(
       .optional()
       .describe("Which competitor this is from (suumo, athome, canary, other)"),
   },
-  async ({ article_id, insight_type, title, description, applicability, priority, tags, source_competitor }) => {
+  safeHandler(async ({ article_id, insight_type, title, description, applicability, priority, tags, source_competitor }) => {
     // Verify article exists
     const article = await prisma.pressArticle.findUnique({ where: { id: article_id } });
     if (!article) {
@@ -396,7 +416,7 @@ server.tool(
     return {
       content: [{ type: "text", text: JSON.stringify({ created: insight.id, title: insight.title }, null, 2) }],
     };
-  }
+  })
 );
 
 server.tool(
@@ -416,7 +436,7 @@ server.tool(
     tag: z.string().optional().describe("Filter by tag (partial match in tags array)"),
     limit: z.number().min(1).max(100).default(20).describe("Max results (1-100)"),
   },
-  async ({ insight_type, priority, status, source_competitor, tag, limit }) => {
+  safeHandler(async ({ insight_type, priority, status, source_competitor, tag, limit }) => {
     const where: Record<string, unknown> = {};
 
     if (insight_type) where.insightType = insight_type;
@@ -459,7 +479,7 @@ server.tool(
     }));
 
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  }
+  })
 );
 
 server.tool(
@@ -469,7 +489,7 @@ server.tool(
     insight_id: z.string().describe("The PressInsight ID to update"),
     status: z.enum(["new", "reviewed", "adopted", "dismissed"]).describe("New status"),
   },
-  async ({ insight_id, status }) => {
+  safeHandler(async ({ insight_id, status }) => {
     const existing = await prisma.pressInsight.findUnique({ where: { id: insight_id } });
     if (!existing) {
       return { content: [{ type: "text", text: JSON.stringify({ error: `Insight '${insight_id}' not found` }) }] };
@@ -483,7 +503,7 @@ server.tool(
     return {
       content: [{ type: "text", text: JSON.stringify({ updated: updated.id, status: updated.status }, null, 2) }],
     };
-  }
+  })
 );
 
 // --- UIUX Structure Tools ---
@@ -497,7 +517,7 @@ server.tool(
     device: z.string().default("sp").describe("Device: pc or sp"),
     depth: z.enum(["summary", "full"]).default("summary").describe("Level of detail: summary or full (all components)"),
   },
-  async ({ service, page_type, device, depth }) => {
+  safeHandler(async ({ service, page_type, device, depth }) => {
     const page = await prisma.monitoredPage.findFirst({
       where: {
         service: { name: service },
@@ -539,7 +559,7 @@ server.tool(
     }
 
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  }
+  })
 );
 
 server.tool(
@@ -551,7 +571,7 @@ server.tool(
     category: z.string().default("chintai").describe("Category: chintai, buy, etc."),
     depth: z.enum(["summary", "full"]).default("summary").describe("Level of detail"),
   },
-  async ({ page_type, device, category, depth }) => {
+  safeHandler(async ({ page_type, device, category, depth }) => {
     const ownPage = await prisma.ownPage.findFirst({
       where: { pageType: page_type, device, category, isActive: true, deletedAt: null },
       select: { id: true, name: true, url: true },
@@ -589,7 +609,7 @@ server.tool(
     }
 
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  }
+  })
 );
 
 server.tool(
@@ -600,7 +620,7 @@ server.tool(
     page_type: z.string().describe("Page type: detail, list, form"),
     device: z.string().default("sp").describe("Device: pc or sp"),
   },
-  async ({ service, page_type, device }) => {
+  safeHandler(async ({ service, page_type, device }) => {
     const competitorPage = await prisma.monitoredPage.findFirst({
       where: { service: { name: service }, pageType: page_type, device, isActive: true, deletedAt: null },
       select: { id: true, url: true },
@@ -645,7 +665,7 @@ server.tool(
     };
 
     return { content: [{ type: "text", text: JSON.stringify(comparison, null, 2) }] };
-  }
+  })
 );
 
 server.tool(
@@ -655,7 +675,7 @@ server.tool(
     service: z.string().optional().describe("Specific competitor (omit for all)"),
     device: z.string().default("sp").describe("Device: pc or sp"),
   },
-  async ({ service, device }) => {
+  safeHandler(async ({ service, device }) => {
     const services = service ? [service] : ["suumo", "athome", "canary"];
     const results: Record<string, unknown>[] = [];
 
@@ -690,7 +710,7 @@ server.tool(
     }
 
     return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };
-  }
+  })
 );
 
 server.tool(
@@ -700,7 +720,7 @@ server.tool(
     page_type: z.string().optional().describe("Filter by page type (detail, list, form)"),
     device: z.string().default("sp").describe("Device: pc or sp"),
   },
-  async ({ page_type, device }) => {
+  safeHandler(async ({ page_type, device }) => {
     const pageTypes = page_type ? [page_type] : ["detail", "list", "form"];
     const gaps: Record<string, unknown>[] = [];
 
@@ -756,7 +776,7 @@ server.tool(
     }
 
     return { content: [{ type: "text", text: JSON.stringify(gaps, null, 2) }] };
-  }
+  })
 );
 
 server.tool(
@@ -768,7 +788,7 @@ server.tool(
     device: z.string().default("sp").describe("Device: pc or sp"),
     limit: z.number().default(10).describe("Max records to return"),
   },
-  async ({ service, page_type, device, limit }) => {
+  safeHandler(async ({ service, page_type, device, limit }) => {
     if (service === "homes") {
       const ownPage = await prisma.ownPage.findFirst({
         where: { pageType: page_type, device, isActive: true, deletedAt: null },
@@ -806,7 +826,7 @@ server.tool(
     });
 
     return { content: [{ type: "text", text: JSON.stringify({ service, url: page.url, history }, null, 2) }] };
-  }
+  })
 );
 
 server.tool(
@@ -818,7 +838,7 @@ server.tool(
     before_date: z.string().optional().describe("Delete changes detected before this ISO date"),
     dry_run: z.boolean().default(true).describe("If true, only count records without deleting"),
   },
-  async ({ priority, summary_contains, before_date, dry_run }) => {
+  safeHandler(async ({ priority, summary_contains, before_date, dry_run }) => {
     // 全フィルタが未指定の場合は全件削除になるため拒否する
     if (!priority && !summary_contains && !before_date) {
       return {
@@ -869,7 +889,7 @@ server.tool(
         }, null, 2),
       }],
     };
-  }
+  })
 );
 
 async function main() {

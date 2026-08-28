@@ -100,7 +100,7 @@ async def notify_press_article(article: dict) -> bool:
     webhook_url = get_webhook_url()
     if not webhook_url:
         logger.error(
-            "PRESS_SLACK_WEBHOOK_URL is not configured. Skipping all press notifications."
+            "SLACK_WEBHOOK_URL is not configured. Skipping all press notifications."
         )
         return False
 
@@ -147,7 +147,7 @@ async def notify_press_articles(articles: list[dict]) -> dict:
     webhook_url = get_webhook_url()
     if not webhook_url:
         logger.error(
-            "PRESS_SLACK_WEBHOOK_URL is not configured. Skipping all press notifications."
+            "SLACK_WEBHOOK_URL is not configured. Skipping all press notifications."
         )
         return {
             "total": len(articles),

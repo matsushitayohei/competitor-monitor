@@ -20,7 +20,8 @@ export default async function ChangesPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const currentPage = Math.max(1, parseInt(searchParams.page || "1"));
+  const parsedPage = parseInt(searchParams.page || "1", 10);
+  const currentPage = Math.max(1, isNaN(parsedPage) ? 1 : parsedPage);
   const serviceFilter = searchParams.service || "";
   const categoryFilter = searchParams.category || "";
   const reviewedFilter = searchParams.reviewed || "";

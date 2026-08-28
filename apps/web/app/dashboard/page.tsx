@@ -3,17 +3,19 @@
 export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
-  const totalChanges = await prisma.change.count();
-  const recentChanges = await prisma.change.findMany({
-    orderBy: { detectedAt: "desc" },
-    take: 10,
-    include: { page: { include: { service: true } } },
-  });
-  const services = await prisma.service.findMany({
-    where: { isActive: true, deletedAt: null },
-    select: { id: true, category: true },
-  });
-  const pages = await prisma.monitoredPage.count({ where: { isActive: true, deletedAt: null } });
+  const [totalChanges, recentChanges, services, pages] = await Promise.all([
+    prisma.change.count(),
+    prisma.change.findMany({
+      orderBy: { detectedAt: "desc" },
+      take: 10,
+      include: { page: { include: { service: true } } },
+    }),
+    prisma.service.findMany({
+      where: { isActive: true, deletedAt: null },
+      select: { id: true, category: true },
+    }),
+    prisma.monitoredPage.count({ where: { isActive: true, deletedAt: null } }),
+  ]);
 
   const realEstateCount = services.filter((s) => s.category === "real_estate").length;
   const otherCount = services.filter((s) => s.category === "other").length;

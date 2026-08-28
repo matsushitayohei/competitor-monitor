@@ -199,10 +199,11 @@ async def send_slack_notification(results: list[dict]) -> None:
 
     try:
         async with httpx.AsyncClient() as client:
-            await client.post(
+            response = await client.post(
                 webhook_url,
                 json={"text": fallback_text, "blocks": blocks},
                 timeout=10,
             )
+            response.raise_for_status()
     except Exception as e:
         print(f"Slack notification error: {e}")
