@@ -311,8 +311,13 @@ async def scan_page(page_info: dict) -> dict:
         if before_screenshot_path:
             try:
                 import httpx as _httpx
+                # Vercel Blob URLs require the same token used for upload
+                _blob_token = os.environ.get("BLOB_READ_WRITE_TOKEN", "")
+                _auth_headers = {"Authorization": f"Bearer {_blob_token}"} if _blob_token else {}
                 async with _httpx.AsyncClient() as _client:
-                    before_response = await _client.get(before_screenshot_path, timeout=30)
+                    before_response = await _client.get(
+                        before_screenshot_path, timeout=30, headers=_auth_headers
+                    )
                 if before_response.status_code == 200:
                     diff_result_obj = generate_visual_diff(
                         before_response.content,
