@@ -167,6 +167,18 @@ SERVICE_CONFIG: dict[str, dict] = {
             r"/detail/\d+/\d+",
         ],
     },
+    "mercari": {
+        "domain": "jp.mercari.com",
+        "selectors": [
+            'a[href*="/item/m"]',
+            '.merItemThumbnail a[href*="/item/"]',
+            'li[data-testid] a[href*="/item/"]',
+            'a[data-testid="thumbnail-link"]',
+        ],
+        "patterns": [
+            r"/item/m[0-9]+",
+        ],
+    },
 }
 
 

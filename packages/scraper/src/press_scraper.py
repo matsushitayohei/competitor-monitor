@@ -11,11 +11,16 @@ Key behaviors:
 - Zero new articles is logged as success, not error
 - Stealth mode: playwright-stealth to bypass bot detection (webdriver flag, etc.)
 - Retry with alternative wait strategy on timeout
+- RSS fallback: sources with known RSS feeds use httpx on Playwright 403
 """
 
 import asyncio
 import logging
 from datetime import datetime, timezone
+from typing import Optional
+import xml.etree.ElementTree as ET
+
+import httpx
 
 from playwright.async_api import (
     async_playwright,
@@ -46,9 +51,182 @@ INTER_REQUEST_DELAY = 2.0
 # Maximum retries for a source page fetch
 MAX_RETRIES = 2
 
+# RSS/Atom feed URLs for sources where Playwright triggers bot detection (403).
+# Key: source name substring (lowercase), Value: RSS feed URL.
+# When Playwright returns 403 for a source whose name matches a key here,
+# the scraper falls back to fetching via httpx + parsing the RSS feed directly.
+RSS_FALLBACK_FEEDS: dict[str, str] = {
+    "suumo-press": "https://www.recruit.co.jp/newsroom/pressrelease/pressrelease-cat/c-housing/feed/",
+    "suumo-data": "https://www.recruit.co.jp/newsroom/data/data-cat/c-housing/feed/",
+    "ielove-press": "https://www.ielove-group.jp/news/feed/",
+}
+
+# httpx headers to use for RSS / plain HTTP fetching (no bot-detection overhead)
+_HTTPX_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": "application/rss+xml,application/atom+xml,text/xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+    "Cache-Control": "no-cache",
+}
+
+
+def _rss_feed_url_for_source(source_name: str) -> Optional[str]:
+    """Return the RSS fallback feed URL for a source name, or None."""
+    name_lower = source_name.lower()
+    # Exact match first
+    if name_lower in RSS_FALLBACK_FEEDS:
+        return RSS_FALLBACK_FEEDS[name_lower]
+    # Substring match
+    for key, url in RSS_FALLBACK_FEEDS.items():
+        if key in name_lower:
+            return url
+    return None
+
+
+def _rss_to_html(rss_xml: str) -> str:
+    """Convert RSS/Atom XML to a simple HTML structure parseable by existing parsers.
+
+    Generates an HTML page that resembles a news listing with <article> elements
+    containing the title, link, and publication date from the feed.
+
+    Args:
+        rss_xml: Raw XML content of an RSS or Atom feed.
+
+    Returns:
+        HTML string, or empty string if parsing fails.
+    """
+    try:
+        root = ET.fromstring(rss_xml)
+    except ET.ParseError as e:
+        logger.warning(f"RSS XML parse error: {e}")
+        return ""
+
+    # Detect feed type
+    ns = {"atom": "http://www.w3.org/2005/Atom"}
+    is_atom = root.tag == "{http://www.w3.org/2005/Atom}feed" or root.tag.endswith("}feed")
+
+    items: list[dict] = []
+
+    if is_atom:
+        entries = root.findall("{http://www.w3.org/2005/Atom}entry") or root.findall("entry")
+        for entry in entries:
+            title_el = entry.find("{http://www.w3.org/2005/Atom}title") or entry.find("title")
+            title = title_el.text.strip() if title_el is not None and title_el.text else ""
+
+            link_el = entry.find("{http://www.w3.org/2005/Atom}link") or entry.find("link")
+            link = ""
+            if link_el is not None:
+                link = link_el.get("href", "") or link_el.text or ""
+
+            date_el = (
+                entry.find("{http://www.w3.org/2005/Atom}published")
+                or entry.find("{http://www.w3.org/2005/Atom}updated")
+                or entry.find("published")
+                or entry.find("updated")
+            )
+            date = date_el.text.strip() if date_el is not None and date_el.text else ""
+
+            if title and link:
+                items.append({"title": title, "link": link.strip(), "date": date})
+    else:
+        # RSS 2.0
+        channel = root.find("channel")
+        feed_items = channel.findall("item") if channel is not None else root.findall("item")
+        for item in feed_items:
+            title_el = item.find("title")
+            title = title_el.text.strip() if title_el is not None and title_el.text else ""
+
+            link_el = item.find("link")
+            link = link_el.text.strip() if link_el is not None and link_el.text else ""
+            if not link:
+                guid_el = item.find("guid")
+                if guid_el is not None and guid_el.text and guid_el.text.startswith("http"):
+                    link = guid_el.text.strip()
+
+            date_el = item.find("pubDate") or item.find("dc:date")
+            date = date_el.text.strip() if date_el is not None and date_el.text else ""
+
+            if title and link:
+                items.append({"title": title, "link": link, "date": date})
+
+    if not items:
+        return ""
+
+    # Build minimal HTML
+    article_blocks = []
+    for it in items:
+        article_blocks.append(
+            f'<article class="news-item">'
+            f'<time datetime="{it["date"]}">{it["date"]}</time>'
+            f'<a href="{it["link"]}">{it["title"]}</a>'
+            f"</article>"
+        )
+
+    html = (
+        "<!DOCTYPE html><html><head><meta charset='utf-8'></head>"
+        "<body>"
+        + "\n".join(article_blocks)
+        + "</body></html>"
+    )
+    logger.info(f"RSS feed converted to HTML: {len(items)} items")
+    return html
+
+
+async def _fetch_via_httpx(feed_url: str, source_name: str) -> str:
+    """Fetch a URL using httpx (plain HTTP, no JS execution).
+
+    Used as fallback when Playwright is blocked by bot detection.
+    Handles both RSS feeds and regular HTML pages.
+
+    Args:
+        feed_url: URL to fetch.
+        source_name: For logging.
+
+    Returns:
+        HTML string ready for parsing, or empty string on failure.
+
+    Raises:
+        Exception: If the HTTP request fails (non-2xx, timeout, etc.).
+    """
+    async with httpx.AsyncClient(
+        headers=_HTTPX_HEADERS,
+        follow_redirects=True,
+        timeout=30.0,
+    ) as client:
+        response = await client.get(feed_url)
+
+    if response.status_code >= 400:
+        raise Exception(
+            f"HTTP {response.status_code} from RSS/httpx fallback: {feed_url}"
+        )
+
+    content_type = response.headers.get("content-type", "")
+    raw = response.text
+
+    # Convert RSS/Atom to HTML if needed
+    if (
+        "xml" in content_type
+        or "rss" in content_type
+        or "atom" in content_type
+        or raw.lstrip().startswith("<?xml")
+        or "<rss" in raw[:500]
+        or "<feed" in raw[:500]
+    ):
+        logger.info(f"  [{source_name}] RSS/Atom feed detected — converting to HTML")
+        html = _rss_to_html(raw)
+        if not html:
+            raise Exception(f"Failed to parse RSS/Atom feed from: {feed_url}")
+        return html
+
+    # Plain HTML
+    return raw
+
 
 async def fetch_article_body(page: Page, url: str, parser) -> tuple[str, str | None]:
     """Navigate to an article page and extract body text and date using the parser.
+
+    For sources with known 403 issues (recruit.co.jp, ielove-group.jp), falls back
+    to httpx when Playwright receives a 403 response.
 
     Args:
         page: Playwright page instance.
@@ -59,22 +237,26 @@ async def fetch_article_body(page: Page, url: str, parser) -> tuple[str, str | N
         Tuple of (body_text, published_at_iso_string_or_None).
         Returns ("", None) on failure.
     """
+    html = ""
     try:
         response = await page.goto(url, wait_until="domcontentloaded", timeout=TIMEOUT_MS)
-        if response and response.status >= 400:
+        if response and response.status == 403:
+            # Try httpx fallback for bot-detection-protected sites
+            logger.info(f"  Article body 403, trying httpx fallback: {url}")
+            try:
+                html = await _fetch_article_body_via_httpx(url)
+            except Exception as e:
+                logger.warning(f"  httpx fallback also failed for article body: {e}")
+                return ("", None)
+        elif response and response.status >= 400:
             logger.warning(
                 f"HTTP {response.status} when fetching article body: {url}"
             )
             return ("", None)
-
-        # Wait briefly for dynamic content
-        await page.wait_for_timeout(2000)
-
-        html = await page.content()
-        body_text = parser.parse_article_body(html)
-        # Also try to extract date from the article page
-        published_at = parser._extract_date_from_article_page(html)
-        return (body_text, published_at)
+        else:
+            # Wait briefly for dynamic content
+            await page.wait_for_timeout(2000)
+            html = await page.content()
 
     except PlaywrightTimeout:
         logger.warning(f"Timeout fetching article body: {url}")
@@ -83,16 +265,60 @@ async def fetch_article_body(page: Page, url: str, parser) -> tuple[str, str | N
         logger.warning(f"Error fetching article body {url}: {e}")
         return ("", None)
 
+    if not html:
+        return ("", None)
 
-async def _fetch_source_page(page: Page, source_url: str) -> str:
+    body_text = parser.parse_article_body(html)
+    # Also try to extract date from the article page
+    published_at = parser._extract_date_from_article_page(html)
+    return (body_text, published_at)
+
+
+async def _fetch_article_body_via_httpx(url: str) -> str:
+    """Fetch an individual article page via httpx (bypasses bot detection).
+
+    Args:
+        url: Article URL to fetch.
+
+    Returns:
+        HTML string.
+
+    Raises:
+        Exception: On HTTP error or network failure.
+    """
+    article_headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+        "Cache-Control": "no-cache",
+    }
+    async with httpx.AsyncClient(
+        headers=article_headers,
+        follow_redirects=True,
+        timeout=30.0,
+    ) as client:
+        response = await client.get(url)
+
+    if response.status_code >= 400:
+        raise Exception(f"HTTP {response.status_code} from httpx article fetch: {url}")
+
+    return response.text
+
+
+async def _fetch_source_page(page: Page, source_url: str, source_name: str = "") -> str:
     """Fetch a press source listing page with retry and fallback strategies.
 
     Tries multiple wait strategies to handle slow-loading corporate sites
     and aggressive bot detection (HTTP 403).
 
+    When all Playwright attempts return 403 and an RSS feed is registered for
+    the source, falls back to fetching the feed via httpx and converting it to
+    HTML so the existing parsers can process it without changes.
+
     Args:
         page: Playwright page instance.
         source_url: URL of the press release listing page.
+        source_name: Source name for RSS fallback lookup and logging.
 
     Returns:
         HTML content of the page.
@@ -103,6 +329,7 @@ async def _fetch_source_page(page: Page, source_url: str) -> str:
     wait_strategies = ["domcontentloaded", "load", "networkidle"]
 
     last_error = None
+    got_403 = False
     for attempt, wait_until in enumerate(wait_strategies[:MAX_RETRIES + 1]):
         try:
             if attempt > 0:
@@ -122,6 +349,7 @@ async def _fetch_source_page(page: Page, source_url: str) -> str:
                     f"  HTTP 403 on attempt {attempt + 1}, "
                     f"waiting for JS challenge resolution..."
                 )
+                got_403 = True
                 # Some WAFs set cookies after initial 403, then redirect on reload
                 await page.wait_for_timeout(8000)
                 # Check if page content loaded after JS challenge
@@ -177,6 +405,27 @@ async def _fetch_source_page(page: Page, source_url: str) -> str:
             )
             continue
 
+    # --- RSS / httpx fallback for persistent 403 ---
+    # Some corporate sites (e.g. recruit.co.jp, ielove-group.jp) reject headless
+    # browsers but serve their RSS/Atom feeds without bot detection. When all
+    # Playwright attempts resulted in 403, try the registered RSS feed URL.
+    if got_403 and source_name:
+        rss_url = _rss_feed_url_for_source(source_name)
+        if rss_url:
+            logger.info(
+                f"  All Playwright attempts 403 — falling back to RSS feed: {rss_url}"
+            )
+            try:
+                html = await _fetch_via_httpx(rss_url, source_name)
+                logger.info(
+                    f"  RSS fallback successful for {source_name} "
+                    f"(content: {len(html)} chars)"
+                )
+                return html
+            except Exception as rss_err:
+                logger.warning(f"  RSS fallback also failed: {rss_err}")
+                # Raise original 403 error (more informative)
+
     # All attempts failed
     raise last_error
 
@@ -211,7 +460,7 @@ async def scrape_press_source(page: Page, source: dict) -> list[dict]:
     await page.set_extra_http_headers({"Referer": referer})
 
     # Fetch the press release listing page with retry logic
-    html = await _fetch_source_page(page, source_url)
+    html = await _fetch_source_page(page, source_url, source_name)
 
     # Extract article list from the listing page
     articles = parser.parse_article_list(html, base_url=source_url)
