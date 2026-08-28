@@ -86,6 +86,9 @@ def save_press_article(data: dict) -> str:
             ))
             conn.commit()
         return article_id
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         release_connection(conn)
 
@@ -223,6 +226,9 @@ def update_article_body(
                     article_id,
                 ))
             conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         release_connection(conn)
 
@@ -259,6 +265,9 @@ def update_article_classification(
                 article_id,
             ))
             conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         release_connection(conn)
 
@@ -284,5 +293,8 @@ def update_article_summary(article_id: str, summary: str) -> None:
                 article_id,
             ))
             conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         release_connection(conn)

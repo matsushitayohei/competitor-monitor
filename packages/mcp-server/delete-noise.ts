@@ -85,12 +85,14 @@ async function main() {
   }
 
   // Build where clause
+  // --category filters on Change.category (CRO, SEO, AD_PRODUCT, AI, OTHER)
+  // --keyword  filters on Advice.summary (human-readable summary text)
   const where: Record<string, unknown> = {};
   if (opts.before) where.detectedAt = { lt: new Date(opts.before) };
-  if (opts.category || opts.keyword) {
+  if (opts.category) where.category = opts.category;
+  if (opts.keyword) {
     where.advice = {
-      ...(opts.category ? { priority: opts.category } : {}),
-      ...(opts.keyword ? { summary: { contains: opts.keyword } } : {}),
+      summary: { contains: opts.keyword },
     };
   }
 

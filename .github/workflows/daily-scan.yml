@@ -70,7 +70,7 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          PRESS_NOTIFICATIONS_DISABLED: "true"
+          # PRESS_NOTIFICATIONS_DISABLED: "true"  # Uncomment to silence press Slack notifications
         run: |
           python packages/scraper/src/press_main.py
 

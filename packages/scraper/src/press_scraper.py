@@ -33,6 +33,7 @@ from press_db import (
     update_article_body,
 )
 from press_parsers import get_parser_for_source
+from constants import USER_AGENT
 
 logger = logging.getLogger(__name__)
 
@@ -325,11 +326,7 @@ async def run_press_scraper() -> dict:
         )
         # Use realistic browser context to avoid bot detection
         context = await browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/128.0.0.0 Safari/537.36"
-            ),
+            user_agent=USER_AGENT,
             viewport={"width": 1920, "height": 1080},
             locale="ja-JP",
             timezone_id="Asia/Tokyo",
