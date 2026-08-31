@@ -324,7 +324,7 @@ async def scan_page(page_info: dict) -> dict:
                         before_response.content,
                         screenshot_bytes,
                     )
-                    if diff_result_obj is not None:
+                    if diff_result_obj:
                         # Upload cropped before/after (変更箇所のみ — 数十KBに抑えられる)
                         before_crop_path = upload_screenshot(
                             diff_result_obj.before_crop, f"{page_id}/before", device
@@ -336,9 +336,9 @@ async def scan_page(page_info: dict) -> dict:
                             diff_result_obj.diff_image, f"{page_id}/diff", device
                         )
                         if visual_diff_path:
-                            print(f"    Visual diff generated (crops: before={before_crop_path is not None}, after={after_crop_path is not None})")
+                            print(f"    Visual diff generated ({len(diff_result_obj.regions)} regions, crops: before={before_crop_path is not None}, after={after_crop_path is not None})")
                     else:
-                        print(f"    Visual diff skipped (no clear structural changes, relying on text summary)")
+                        print(f"    Visual diff skipped: {diff_result_obj.reason}")
             except Exception as e:
                 print(f"    Visual diff generation failed: {e}")
 

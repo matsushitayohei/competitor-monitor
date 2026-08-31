@@ -70,6 +70,7 @@ model Change {
   structureAfterId     String?
   detectedAt           DateTime @default(now())
   isReviewed           Boolean  @default(false)
+  isDismissed          Boolean  @default(false)
   page                 MonitoredPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
   advice               Advice?
   structureBefore      PageStructure? @relation("ChangeStructureBefore", fields: [structureBeforeId], references: [id], onDelete: SetNull)
@@ -79,6 +80,7 @@ model Change {
   @@index([serviceName])
   @@index([category])
   @@index([isReviewed])
+  @@index([isDismissed])
   @@index([pageId])
 }
 

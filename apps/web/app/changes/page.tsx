@@ -10,6 +10,7 @@ interface SearchParams {
   category?: string;
   reviewed?: string;
   priority?: string;
+  dismissed?: string;
   page?: string;
 }
 
@@ -27,6 +28,8 @@ export default async function ChangesPage({
   const reviewedFilter = searchParams.reviewed || "";
   // デフォルトで low / OTHER を除外（ノイズ非表示）、"all" で全件表示
   const priorityFilter = searchParams.priority ?? "not_low";
+  // デフォルトで適用外を非表示、"only" で適用外のみ表示
+  const dismissedFilter = searchParams.dismissed ?? "false";
 
   const where = {
     ...(serviceFilter && { serviceName: serviceFilter }),
@@ -45,6 +48,10 @@ export default async function ChangesPage({
     ...(priorityFilter === "high" && { advice: { priority: "high" } }),
     ...(priorityFilter === "medium" && { advice: { priority: "medium" } }),
     ...(priorityFilter === "low" && { advice: { priority: "low" } }),
+    // 適用外フィルタ：デフォルトは非表示、"only" で適用外のみ、"all" で全件
+    ...(dismissedFilter === "false" && { isDismissed: false }),
+    ...(dismissedFilter === "only" && { isDismissed: true }),
+    // dismissedFilter === "all" のときは条件なし（全件）
   };
 
   const [changes, totalCount, services] = await Promise.all([
@@ -74,10 +81,12 @@ export default async function ChangesPage({
     const category = "category" in params ? params.category : categoryFilter;
     const reviewed = "reviewed" in params ? params.reviewed : reviewedFilter;
     const priority = "priority" in params ? params.priority : priorityFilter;
+    const dismissed = "dismissed" in params ? params.dismissed : dismissedFilter;
     if (service) p.set("service", service);
     if (category) p.set("category", category);
     if (reviewed) p.set("reviewed", reviewed);
     if (priority) p.set("priority", priority);
+    if (dismissed && dismissed !== "false") p.set("dismissed", dismissed);
     if (params.page) p.set("page", params.page);
     const qs = p.toString();
     return `/changes${qs ? `?${qs}` : ""}`;
@@ -174,6 +183,24 @@ export default async function ChangesPage({
               ))}
             </div>
           </div>
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-600">適用外:</label>
+            <div className="flex gap-1">
+              {[
+                { value: "false", label: "非表示" },
+                { value: "only", label: "🚫 適用外のみ" },
+                { value: "all", label: "全て" },
+              ].map((opt) => (
+                <Link
+                  key={opt.value}
+                  href={buildUrl({ dismissed: opt.value, page: "1" })}
+                  className={`px-2 py-1 text-xs rounded ${dismissedFilter === opt.value ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+                >
+                  {opt.label}
+                </Link>
+              ))}
+            </div>
+          </div>
         </div>
 
         {changes.length === 0 ? (
@@ -188,6 +215,7 @@ export default async function ChangesPage({
                 change={{
                   ...change,
                   detectedAt: change.detectedAt.toISOString(),
+                  isDismissed: change.isDismissed,
                   page: {
                     ...change.page,
                     device: change.page.device,

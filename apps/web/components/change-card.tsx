@@ -45,6 +45,7 @@ interface ChangeCardProps {
     visualDiffPath: string | null;
     detectedAt: string;
     isReviewed: boolean;
+    isDismissed: boolean;
     page: {
       url: string;
       device: string;
@@ -63,6 +64,20 @@ interface ChangeCardProps {
 
 export function ChangeCard({ change }: ChangeCardProps) {
   const [modalOpen, setModalOpen] = useState(false);
+  const [isDismissed, setIsDismissed] = useState(change.isDismissed);
+  const [dismissing, setDismissing] = useState(false);
+
+  async function handleDismiss() {
+    setDismissing(true);
+    try {
+      const res = await fetch(`/api/changes/${change.id}/dismiss`, { method: "PATCH" });
+      if (res.ok) {
+        setIsDismissed((prev) => !prev);
+      }
+    } finally {
+      setDismissing(false);
+    }
+  }
 
   const hasScreenshots = change.beforeScreenshotPath || change.afterScreenshotPath || change.visualDiffPath;
   const hasBeforeAfter = change.beforeScreenshotPath && change.afterScreenshotPath;
@@ -84,7 +99,20 @@ export function ChangeCard({ change }: ChangeCardProps) {
 
   return (
     <>
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+      <div className={`bg-white rounded-lg border overflow-hidden ${isDismissed ? "border-gray-200 opacity-60" : "border-gray-200"}`}>
+        {/* 適用外バナー */}
+        {isDismissed && (
+          <div className="px-5 py-2 bg-gray-100 border-b border-gray-200 flex items-center justify-between">
+            <span className="text-xs text-gray-500 font-medium">🚫 適用外としてマーク済み</span>
+            <button
+              onClick={handleDismiss}
+              disabled={dismissing}
+              className="text-xs text-blue-500 hover:underline disabled:opacity-50"
+            >
+              {dismissing ? "処理中…" : "取り消す"}
+            </button>
+          </div>
+        )}
         {/* Header */}
         <div className="px-5 pt-4 pb-3">
           <div className="flex items-center justify-between mb-1">
@@ -123,6 +151,17 @@ export function ChangeCard({ change }: ChangeCardProps) {
               <span className="text-xs text-gray-400">
                 {new Date(change.detectedAt).toLocaleDateString("ja-JP")}
               </span>
+              {/* 適用外ボタン（未適用外のときのみ表示） */}
+              {!isDismissed && (
+                <button
+                  onClick={handleDismiss}
+                  disabled={dismissing}
+                  className="text-xs text-gray-400 hover:text-red-500 hover:bg-red-50 px-2 py-0.5 rounded border border-transparent hover:border-red-200 transition-colors disabled:opacity-50"
+                  title="この変更を適用外にする（一覧から非表示）"
+                >
+                  {dismissing ? "…" : "🚫 適用外"}
+                </button>
+              )}
             </div>
           </div>
 
@@ -172,6 +211,16 @@ export function ChangeCard({ change }: ChangeCardProps) {
         )}
 
         {/* ── スクリーンショット比較エリア（常時表示・クリック不要） ── */}
+        {screenshotCols === 0 && change.diffText && (
+          <div className="px-5 pb-3">
+            <p className="text-xs text-gray-400 flex items-center gap-1">
+              <span>📷</span>
+              <span>
+                画像比較なし（変更がページ全体に広範囲に及ぶか、差分が小さすぎるため自動生成をスキップしました。DOM差分で内容を確認してください）
+              </span>
+            </p>
+          </div>
+        )}
         {screenshotCols > 0 && (
           <div className="px-5 pb-3">
             <p className="text-xs font-medium text-gray-500 mb-2">

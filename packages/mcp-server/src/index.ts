@@ -45,7 +45,7 @@ server.tool(
     const since = new Date();
     since.setDate(since.getDate() - days);
     const changes = await prisma.change.findMany({
-      where: { detectedAt: { gte: since } },
+      where: { detectedAt: { gte: since }, isDismissed: false },
       orderBy: { detectedAt: "desc" },
       include: { advice: true },
     });
@@ -73,7 +73,7 @@ server.tool(
   { service_name: z.string().describe("Service name: suumo, athome, or canary") },
   safeHandler(async ({ service_name }) => {
     const changes = await prisma.change.findMany({
-      where: { serviceName: service_name },
+      where: { serviceName: service_name, isDismissed: false },
       orderBy: { detectedAt: "desc" },
       take: 20,
       select: { category: true, detectedAt: true, summary: true },
@@ -92,6 +92,7 @@ server.tool(
   safeHandler(async ({ category, keyword }) => {
     const changes = await prisma.change.findMany({
       where: {
+        isDismissed: false,
         ...(category && { category }),
         ...(keyword && { summary: { contains: keyword, mode: "insensitive" } }),
       },
@@ -109,6 +110,7 @@ server.tool(
   safeHandler(async ({ limit }) => {
     const changes = await prisma.change.findMany({
       where: {
+        isDismissed: false,
         advice: {
           proposal: { contains: "MCP経由" },
         },
