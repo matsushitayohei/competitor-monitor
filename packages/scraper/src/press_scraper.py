@@ -424,7 +424,13 @@ async def _fetch_source_page(page: Page, source_url: str, source_name: str = "")
                 return html
             except Exception as rss_err:
                 logger.warning(f"  RSS fallback also failed: {rss_err}")
-                # Raise original 403 error (more informative)
+                # Raise RSS error so the Slack notification shows the real cause
+                # (e.g. "HTTP 403 from RSS/httpx fallback") instead of the
+                # original Playwright 403 which misleads the reader into thinking
+                # no fallback was attempted.
+                raise Exception(
+                    f"Playwright 403 + RSS fallback failed ({rss_url}): {rss_err}"
+                ) from rss_err
 
     # All attempts failed
     raise last_error
@@ -584,7 +590,7 @@ async def run_press_scraper() -> dict:
                 "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
                 "Accept-Encoding": "gzip, deflate, br, zstd",
                 "Cache-Control": "no-cache",
-                "Sec-Ch-Ua": '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
+                "Sec-Ch-Ua": '"Google Chrome";v="151", "Chromium";v="151", "Not/A)Brand";v="24"',
                 "Sec-Ch-Ua-Mobile": "?0",
                 "Sec-Ch-Ua-Platform": '"Windows"',
                 "Sec-Fetch-Dest": "document",
