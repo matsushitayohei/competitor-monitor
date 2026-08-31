@@ -58,11 +58,11 @@ server.tool(
   "Get detailed information about a specific change including AI advice",
   { change_id: z.string().describe("The ID of the change to retrieve") },
   safeHandler(async ({ change_id }) => {
-    const change = await prisma.change.findUnique({
-      where: { id: change_id },
+    const change = await prisma.change.findFirst({
+      where: { id: change_id, isDismissed: false },
       include: { advice: true, page: { include: { service: true } } },
     });
-    if (!change) return { content: [{ type: "text", text: "Change not found" }] };
+    if (!change) return { content: [{ type: "text", text: JSON.stringify({ error: "Change not found or dismissed" }) }] };
     return { content: [{ type: "text", text: JSON.stringify(change, null, 2) }] };
   })
 );
@@ -76,7 +76,7 @@ server.tool(
       where: { serviceName: service_name, isDismissed: false },
       orderBy: { detectedAt: "desc" },
       take: 20,
-      select: { category: true, detectedAt: true, summary: true },
+      select: { id: true, category: true, detectedAt: true, summary: true },
     });
     return { content: [{ type: "text", text: JSON.stringify(changes, null, 2) }] };
   })

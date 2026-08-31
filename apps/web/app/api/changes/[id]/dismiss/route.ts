@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/lib/auth";
 
 // PATCH /api/changes/[id]/dismiss - Toggle isDismissed status
 export async function PATCH(
   _request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const session = await auth();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const { id } = params;
 

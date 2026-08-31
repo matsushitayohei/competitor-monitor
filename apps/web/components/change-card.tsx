@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { ScreenshotImage } from "./screenshot-image";
 import { ScreenshotModal } from "./screenshot-modal";
 import { DiffViewer } from "./diff-viewer";
@@ -66,6 +67,7 @@ export function ChangeCard({ change }: ChangeCardProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [isDismissed, setIsDismissed] = useState(change.isDismissed);
   const [dismissing, setDismissing] = useState(false);
+  const router = useRouter();
 
   async function handleDismiss() {
     setDismissing(true);
@@ -73,6 +75,7 @@ export function ChangeCard({ change }: ChangeCardProps) {
       const res = await fetch(`/api/changes/${change.id}/dismiss`, { method: "PATCH" });
       if (res.ok) {
         setIsDismissed((prev) => !prev);
+        router.refresh();
       }
     } finally {
       setDismissing(false);
