@@ -1,0 +1,53 @@
+name: Backfill Visual Diff Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Max number of Change records to process'
+        required: false
+        default: '100'
+      dry_run:
+        description: 'Dry run (no DB writes or uploads)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('packages/scraper/requirements.txt') }}
+          restore-keys: pip-
+
+      - name: Install dependencies
+        run: |
+          pip install --no-cache-dir -r packages/scraper/requirements.txt
+
+      - name: Run backfill
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+        run: |
+          ARGS="--limit ${{ github.event.inputs.limit }} --verbose"
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          echo "Running: python packages/scraper/src/backfill_visual_diff.py $ARGS"
+          python packages/scraper/src/backfill_visual_diff.py $ARGS
