@@ -8,6 +8,11 @@ on:
         type: boolean
         default: true
 
+# Prevent duplicate manual runs
+concurrency:
+  group: cleanup-blob
+  cancel-in-progress: true
+
 jobs:
   cleanup:
     runs-on: ubuntu-latest

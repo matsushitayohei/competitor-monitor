@@ -246,25 +246,48 @@ def get_list_page_for_service(service_id: str) -> Optional[dict]:
 
 
 def is_duplicate_change(page_id: str, diff_text: str) -> bool:
-    """Return True if the most recent Change for this page has the same diff text.
+    """Return True if an identical Change already exists for this page today (UTC).
 
-    Prevents saving identical back-to-back changes caused by transient rendering
-    inconsistencies (e.g. an SPA section that sometimes renders and sometimes does
-    not, producing the same diff on alternating days).
+    Prevents saving duplicate changes caused by:
+    - Transient rendering inconsistencies (SPA sections toggling on/off daily)
+    - Concurrent or repeated job runs on the same day (see also: concurrency setting
+      in GitHub Actions which is the primary safeguard against duplicate runs)
+
+    Scoping the check to the current UTC calendar day means:
+    - Same diff on the same day → skipped (duplicate run or rendering flap)
+    - Same diff on a different day → saved (page reverted; worth recording)
+    - Different diff on the same day → saved (page genuinely changed twice)
+
+    Falls back to checking the most recent change (regardless of date) when no
+    same-day change exists, to catch the common alternating-diff pattern where
+    a transient section causes the same diff on back-to-back days.
 
     Args:
         page_id: The monitored page ID.
         diff_text: The newly computed diff text to compare.
 
     Returns:
-        True when the latest existing change for this page has an identical
-        diffText, meaning the change should be skipped as a duplicate.
+        True when the change should be skipped as a duplicate.
     """
     if not diff_text:
         return False
     conn = get_connection()
     try:
         with conn.cursor() as cur:
+            # Primary check: same diff already recorded today (UTC)
+            cur.execute("""
+                SELECT 1
+                FROM "Change"
+                WHERE "pageId" = %s
+                  AND "diffText" = %s
+                  AND "detectedAt" >= date_trunc('day', now() AT TIME ZONE 'UTC')
+                LIMIT 1
+            """, (page_id, diff_text))
+            if cur.fetchone():
+                return True
+
+            # Fallback check: most recent change (any date) has identical diff.
+            # Catches alternating-day rendering flaps without date restriction.
             cur.execute("""
                 SELECT "diffText"
                 FROM "Change"
@@ -275,6 +298,7 @@ def is_duplicate_change(page_id: str, diff_text: str) -> bool:
             row = cur.fetchone()
             if row and row[0] == diff_text:
                 return True
+
             return False
     finally:
         release_connection(conn)

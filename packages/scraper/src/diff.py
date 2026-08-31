@@ -19,6 +19,7 @@ EXCLUDE_SELECTORS = [
     # SUUMO specific
     '.cassetteitem_price',
     '.cassetteitem_detail-col3',
+    '.searchitem-list-value',   # SUUMO: station listing counts e.g. "(328)" — change daily
     # athome specific
     '.price',
     '.detail-price',
@@ -106,13 +107,30 @@ def extract_structure(html: str, exclude_selectors: Optional[list] = None) -> st
     for tag in soup.find_all(True):  # All tags
         _normalize_tag_attrs(tag)
 
-    # Normalize meta tag content: replace numeric counts (e.g., "8,526件" → "[NUM]件")
+    # Normalize meta tag content
     for meta in soup.find_all('meta'):
         content = meta.get('content', '')
-        if content and isinstance(content, str):
-            normalized_content = _META_NUMERIC_PATTERN.sub('[NUM]', content)
-            if normalized_content != content:
-                meta['content'] = normalized_content
+        if not content or not isinstance(content, str):
+            continue
+        meta_name = meta.get('name', '').lower()
+        meta_prop = meta.get('property', '').lower()
+
+        # description / og:description contain property-specific text (room names,
+        # addresses, area info) that changes whenever the monitored URL rotates to a
+        # new listing.  Replace entirely to avoid spurious daily diffs.
+        if meta_name in ('description', 'og:description') or meta_prop in ('og:description',):
+            meta['content'] = '[META_DESCRIPTION]'
+            continue
+
+        # keywords: may contain property-specific terms, normalize to suppress noise
+        if meta_name == 'keywords':
+            meta['content'] = '[META_KEYWORDS]'
+            continue
+
+        # For all other meta content: normalize numeric counts (e.g., "8,526件" → "[NUM]件")
+        normalized_content = _META_NUMERIC_PATTERN.sub('[NUM]', content)
+        if normalized_content != content:
+            meta['content'] = normalized_content
 
     # Normalize links inside recommend/related sections
     # (property IDs in hrefs change daily as listings rotate)
@@ -150,12 +168,16 @@ def extract_structure(html: str, exclude_selectors: Optional[list] = None) -> st
 
     # Append normalization version marker for future compatibility detection
     result = str(soup)
-    result += "\n<!-- NORM_V2 -->"
+    result += "\n<!-- NORM_V3 -->"
     return result
 
 
 # Normalization version marker used to detect snapshots saved with current logic
-NORM_VERSION_MARKER = "<!-- NORM_V2 -->"
+# V3 changes vs V2:
+#   - meta[name="description"] / og:description content → [META_DESCRIPTION]
+#   - meta[name="keywords"] content → [META_KEYWORDS]
+#   - .searchitem-list-value (SUUMO station counts) → removed from DOM
+NORM_VERSION_MARKER = "<!-- NORM_V3 -->"
 
 
 # Tags whose text content is CRO-significant and should be preserved for diff

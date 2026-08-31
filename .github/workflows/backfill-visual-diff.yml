@@ -16,6 +16,11 @@ on:
           - 'true'
           - 'false'
 
+# Prevent duplicate manual runs
+concurrency:
+  group: backfill-visual-diff
+  cancel-in-progress: true
+
 jobs:
   backfill:
     runs-on: ubuntu-latest

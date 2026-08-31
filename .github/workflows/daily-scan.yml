@@ -5,6 +5,14 @@ on:
     - cron: '0 1 * * *'  # UTC 1:00 = JST 10:00
   workflow_dispatch:  # Manual trigger
 
+# Prevent concurrent runs: if a scan is already running when a new one is triggered
+# (e.g. manual dispatch while schedule is in progress, or back-to-back schedules),
+# cancel the older run and let the newer one proceed.
+# This is the primary safeguard against duplicate Change records in the DB.
+concurrency:
+  group: daily-scan
+  cancel-in-progress: true
+
 jobs:
   scan:
     runs-on: ubuntu-latest
