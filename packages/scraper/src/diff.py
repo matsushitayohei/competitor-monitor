@@ -20,9 +20,46 @@ EXCLUDE_SELECTORS = [
     '.cassetteitem_price',
     '.cassetteitem_detail-col3',
     '.searchitem-list-value',   # SUUMO: station listing counts e.g. "(328)" — change daily
+    # SUUMO detail page: property-specific info blocks
+    '.detailPage-priceInfo',
+    '.detailPage-roomInfo',
+    '.detailPage-mainInfo',
+    '.bukken-detail-main-info',
+    # SUUMO search/top: property cassette cards (content rotates daily)
+    # NOTE: Using specific class names only — [class*="cassette"] is intentionally avoided
+    # because cassetteitem_header / cassetteitem_label contain structural UI info worth detecting.
+    '.cassette',
+    '.p-cassette',
     # athome specific
     '.price',
     '.detail-price',
+    # Canary (React component naming) — detail property info
+    '[class*="PropertyDetail_price"]',
+    '[class*="PropertyDetail_address"]',
+    '[class*="PropertyDetail_room"]',
+    '[class*="PropertyDetail_floor"]',
+    # Canary search/top: recommend item cards
+    '[class*="RecommendItem"]',
+    '[class*="PickupItem"]',
+    '[class*="FeaturedItem"]',
+    # Homes detail page: property-specific info blocks
+    '.property-detail__price',
+    '.property-detail__floor-plan',
+    '.property-detail__address',
+    # Homes search/top: search result item content (property names/prices inside cards)
+    '.search-result-item-content',
+    # Recommend / pickup sections across all services (content rotates daily)
+    '.recommend-item',
+    '.pickup-item',
+    '[class*="recommend-item"]',
+    '[class*="pickup-item"]',
+    # Campaign and ad banners (content changes frequently, not structural)
+    '.campaign-banner',
+    '.p-campaign',
+    '[class*="campaign-banner"]',
+    '[class*="CampaignBanner"]',
+    '[class*="ad-area"]',
+    '[class*="AdArea"]',
     # Dynamic elements
     '.ad-banner',
     '.ranking-position',
@@ -51,15 +88,37 @@ _META_NUMERIC_PATTERN = re.compile(
     r'[\d,]+(?:\.\d+)?\s*(?:件|棟|戸|台|室|区画|物件|軒|人|万|円|m²|㎡)'
 )
 
+# Pattern to normalize property IDs embedded in URLs
+# e.g., /property/12345678/ → /property/[PROP_ID]/
+# Covers SUUMO, Homes, Canary, athome URL patterns.
+# Minimum 7 digits to avoid false-positives on short category IDs.
+_PROPERTY_ID_IN_URL = re.compile(
+    r'(/(?:property|bukken|room|chintai|mansion|kodate|tochi|bld|jnc|nc)/)\d{7,}([/?#]|$)'
+)
+
 # Patterns identifying recommend/related property sections (class or id)
 _RECOMMEND_SECTION_PATTERNS = re.compile(
     r'recommend|おすすめ|関連|人気|ランキング|新着|pickup|similar|related|suggest',
     re.IGNORECASE,
 )
 
+# Normalization version marker — bumped each time extract_structure logic changes.
+# main.py uses this to detect old snapshots and skip comparison (baseline_reset).
+# V4 changes vs V3:
+#   - EXCLUDE_SELECTORS: added SUUMO cassette cards, Canary React component selectors,
+#     Homes detail blocks, recommend/pickup/campaign/ad-area selectors across all services
+#   - _PROPERTY_NOISE_PATTERNS: added comma-price (85,000円), X万円 standalone, 万千円 form,
+#     decimal area (0.5㎡)
+#   - _normalize_asset_url: added property ID normalization (/property/12345678/ → [PROP_ID])
+# V3 changes vs V2:
+#   - meta[name="description"] / og:description content → [META_DESCRIPTION]
+#   - meta[name="keywords"] content → [META_KEYWORDS]
+#   - .searchitem-list-value (SUUMO station counts) → removed from DOM
+NORM_VERSION_MARKER = "<!-- NORM_V4 -->"
+
 
 def _normalize_asset_url(tag: Tag, val: str) -> str:
-    """Normalize dynamic segments in asset URLs (build hashes, cache busters)."""
+    """Normalize dynamic segments in asset URLs (build hashes, cache busters, property IDs)."""
     if not val:
         return val
 
@@ -75,6 +134,9 @@ def _normalize_asset_url(tag: Tag, val: str) -> str:
 
     # Remove cache buster query params
     result = _CACHE_BUSTER_PATTERN.sub('', result)
+
+    # Normalize property IDs in URLs (listing-specific numeric IDs change daily)
+    result = _PROPERTY_ID_IN_URL.sub(r'\1[PROP_ID]\2', result)
 
     return result
 
@@ -168,16 +230,8 @@ def extract_structure(html: str, exclude_selectors: Optional[list] = None) -> st
 
     # Append normalization version marker for future compatibility detection
     result = str(soup)
-    result += "\n<!-- NORM_V3 -->"
+    result += f"\n{NORM_VERSION_MARKER}"
     return result
-
-
-# Normalization version marker used to detect snapshots saved with current logic
-# V3 changes vs V2:
-#   - meta[name="description"] / og:description content → [META_DESCRIPTION]
-#   - meta[name="keywords"] content → [META_KEYWORDS]
-#   - .searchitem-list-value (SUUMO station counts) → removed from DOM
-NORM_VERSION_MARKER = "<!-- NORM_V3 -->"
 
 
 # Tags whose text content is CRO-significant and should be preserved for diff
@@ -197,15 +251,19 @@ _CRO_SIGNIFICANT_PATTERNS = [
 # Patterns in text content that indicate property-specific noise
 # (even if inside a CRO-significant tag like a link)
 _PROPERTY_NOISE_PATTERNS = [
-    r'\d{1,4}万円',         # 価格 (e.g., 1500万円)
-    r'\d+\.\d+万円',       # 価格 (e.g., 5.5万円)
-    r'\d+円',              # 価格 (e.g., 85000円)
-    r'築\d+年',            # 築年数
-    r'\d+階建',            # 階数
-    r'\d+[LDK]+',          # 間取り
-    r'\d+\.\d+m²',         # 面積
-    r'\d+㎡',              # 面積
-    r'20\d{2}/\d{1,2}/\d{1,2}',  # 日付
+    r'\d{1,4}万円',              # 価格 (e.g., 1500万円)
+    r'\d+\.\d+万円',             # 価格 (e.g., 5.5万円)
+    r'\d+万\d+千円',             # 価格 (e.g., 12万5千円)
+    r'\d+,\d+円',                # コンマ区切り価格 (e.g., 85,000円)
+    r'\d+円',                    # 価格 (e.g., 85000円)
+    r'[0-9.]+万円',              # X万円 単体 (e.g., 8.5万円) — 「万件」等は除外
+    r'築\d+年',                  # 築年数
+    r'\d+階建',                  # 階数
+    r'\d+[LDK]+',                # 間取り
+    r'\d+\.\d+m²',               # 面積
+    r'\d+㎡',                    # 面積
+    r'\d+\.\d+㎡',               # 面積 (小数点あり)
+    r'20\d{2}/\d{1,2}/\d{1,2}', # 日付
     r'20\d{2}年\d{1,2}月',       # 日付
 ]
 
