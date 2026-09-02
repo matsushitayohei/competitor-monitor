@@ -90,13 +90,16 @@ def summarize_change(diff_text: str) -> str:
     # 1. Specific text changes in CRO-significant elements (buttons, headings, links)
     changes.extend(_extract_text_changes(added_lines, removed_lines))
 
-    # 2. Structural additions/removals with content snippets
+    # 2. Table structure and header changes (distinguish UI update vs structure change)
+    changes.extend(_extract_table_changes(added_lines, removed_lines))
+
+    # 3. Structural additions/removals with content snippets
     changes.extend(_extract_structural_changes(added_lines, removed_lines))
 
-    # 3. Form field additions/removals (high value for AI downstream)
+    # 4. Form field additions/removals (high value for AI downstream)
     changes.extend(_extract_form_changes(added_lines, removed_lines))
 
-    # 4. Aria/role additions (accessibility improvements)
+    # 5. Aria/role additions (accessibility improvements)
     changes.extend(_extract_attribute_changes(added_lines, removed_lines))
 
     # Deduplicate preserving order
@@ -136,6 +139,8 @@ def _extract_text_changes(added_lines: list[str], removed_lines: list[str]) -> l
     Preserved text (not [TEXT] placeholder) in buttons/headings/links represents
     actual copy visible to users — the most valuable signal for both human review
     and AI-driven planning.
+
+    Enhanced: includes parent context (section/class name) when available.
     """
     changes = []
 
@@ -157,17 +162,21 @@ def _extract_text_changes(added_lines: list[str], removed_lines: list[str]) -> l
         # collapse whitespace
         return re.sub(r'\s+', ' ', text)
 
-    added_texts: dict[str, list[str]] = {}
+    # Extract context (parent class/id/section) from surrounding diff lines
+    added_context = _extract_surrounding_context(added_lines)
+    removed_context = _extract_surrounding_context(removed_lines)
+
+    added_texts: dict[str, list[tuple[str, str]]] = {}  # tag -> [(text, context), ...]
     for tag, content in added_matches:
         clean = _clean(content)
         if clean and clean not in ("[TEXT]", "[PROPERTY_TEXT]") and len(clean) > 1:
-            added_texts.setdefault(tag.lower(), []).append(clean)
+            added_texts.setdefault(tag.lower(), []).append((clean, added_context))
 
-    removed_texts: dict[str, list[str]] = {}
+    removed_texts: dict[str, list[tuple[str, str]]] = {}
     for tag, content in removed_matches:
         clean = _clean(content)
         if clean and clean not in ("[TEXT]", "[PROPERTY_TEXT]") and len(clean) > 1:
-            removed_texts.setdefault(tag.lower(), []).append(clean)
+            removed_texts.setdefault(tag.lower(), []).append((clean, removed_context))
 
     tag_ja = {
         "button": "ボタン", "a": "リンク",
@@ -183,22 +192,76 @@ def _extract_text_changes(added_lines: list[str], removed_lines: list[str]) -> l
         tag_label = tag_ja.get(tag, tag)
 
         if added_list and removed_list:
-            for old_text in removed_list[:2]:
-                for new_text in added_list[:2]:
+            for old_text, old_ctx in removed_list[:2]:
+                for new_text, new_ctx in added_list[:2]:
                     if old_text != new_text:
+                        ctx_suffix = _format_context_suffix(old_ctx or new_ctx)
                         changes.append(
-                            f"{tag_label}テキスト変更:「{_truncate(old_text, 25)}」→「{_truncate(new_text, 25)}」"
+                            f"{tag_label}テキスト変更:「{_truncate(old_text, 25)}」→「{_truncate(new_text, 25)}」{ctx_suffix}"
                         )
                         break
                 break
         elif added_list and not removed_list:
-            for text in added_list[:3]:
-                changes.append(f"{tag_label}追加:「{_truncate(text, 30)}」")
+            for text, ctx in added_list[:3]:
+                ctx_suffix = _format_context_suffix(ctx)
+                changes.append(f"{tag_label}追加:「{_truncate(text, 30)}」{ctx_suffix}")
         elif removed_list and not added_list:
-            for text in removed_list[:3]:
-                changes.append(f"{tag_label}削除:「{_truncate(text, 30)}」")
+            for text, ctx in removed_list[:3]:
+                ctx_suffix = _format_context_suffix(ctx)
+                changes.append(f"{tag_label}削除:「{_truncate(text, 30)}」{ctx_suffix}")
 
     return changes
+
+
+def _extract_surrounding_context(lines: list[str], max_lookback: int = 10) -> str:
+    """Extract meaningful context (section/class/id name) from surrounding diff lines.
+
+    Scans for parent elements with identifiable class or id attributes to help
+    users understand WHERE the change occurred (e.g., "in header", "in search-form").
+    """
+    combined = "\n".join(lines[:50])  # Look at first 50 lines for context
+
+    # Priority 1: Look for section/article/header/footer/nav/aside with class/id
+    section_pattern = re.compile(
+        r'<(section|article|header|footer|nav|aside|main|div)[^>]*'
+        r'(?:class="([^"]+)"|id="([^"]+)")',
+        re.IGNORECASE
+    )
+    for match in section_pattern.finditer(combined):
+        tag_name = match.group(1)
+        class_attr = match.group(2)
+        id_attr = match.group(3)
+
+        # Try id first (usually more specific)
+        if id_attr and id_attr.lower() not in _GENERIC_CLASSNAMES:
+            return f"{tag_name}#{id_attr}"
+
+        # Then try class (pick first meaningful one)
+        if class_attr:
+            for cls in class_attr.split():
+                if cls.lower() not in _GENERIC_CLASSNAMES and len(cls) > 3:
+                    return f"{tag_name}.{cls}"
+
+    # Priority 2: Look for any element with meaningful class/id
+    any_class_pattern = re.compile(r'class="([^"]+)"', re.IGNORECASE)
+    for match in any_class_pattern.finditer(combined):
+        for cls in match.group(1).split():
+            if cls.lower() not in _GENERIC_CLASSNAMES and len(cls) > 3:
+                # Skip very common utility classes
+                if not any(util in cls.lower() for util in ['px-', 'py-', 'mt-', 'mb-', 'text-', 'bg-']):
+                    return cls
+
+    return ""
+
+
+def _format_context_suffix(context: str) -> str:
+    """Format context string as a suffix for change descriptions."""
+    if not context:
+        return ""
+    # Truncate long context names
+    if len(context) > 30:
+        context = context[:27] + "..."
+    return f" @{context}"
 
 
 # ─────────────────────────────────────────────
@@ -210,6 +273,8 @@ def _extract_structural_changes(added_lines: list[str], removed_lines: list[str]
 
     Appends a short content preview so readers (and AI) understand what the
     added/removed element actually contains — not just that it exists.
+
+    Enhanced: includes parent section context for better location awareness.
     """
     changes = []
 
@@ -233,6 +298,10 @@ def _extract_structural_changes(added_lines: list[str], removed_lines: list[str]
     added_text = "\n".join(added_lines)
     removed_text = "\n".join(removed_lines)
 
+    # Get overall context for added/removed sections
+    added_context = _extract_surrounding_context(added_lines)
+    removed_context = _extract_surrounding_context(removed_lines)
+
     for pattern, label in structural_patterns:
         added_count = len(re.findall(pattern, added_text, re.IGNORECASE))
         removed_count = len(re.findall(pattern, removed_text, re.IGNORECASE))
@@ -240,15 +309,18 @@ def _extract_structural_changes(added_lines: list[str], removed_lines: list[str]
         if added_count > 0 and removed_count == 0:
             snippet = _extract_content_snippet(added_text, pattern)
             suffix = f" [{snippet}]" if snippet else ""
-            changes.append(f"{label}が新規追加{suffix}")
+            ctx_suffix = _format_context_suffix(added_context)
+            changes.append(f"{label}が新規追加{suffix}{ctx_suffix}")
         elif removed_count > 0 and added_count == 0:
             snippet = _extract_content_snippet(removed_text, pattern)
             suffix = f" [{snippet}]" if snippet else ""
-            changes.append(f"{label}が削除{suffix}")
+            ctx_suffix = _format_context_suffix(removed_context)
+            changes.append(f"{label}が削除{suffix}{ctx_suffix}")
         elif added_count > removed_count:
             snippet = _extract_content_snippet(added_text, pattern)
             suffix = f" [{snippet}]" if snippet else ""
-            changes.append(f"{label}が追加 (+{added_count - removed_count}){suffix}")
+            ctx_suffix = _format_context_suffix(added_context)
+            changes.append(f"{label}が追加 (+{added_count - removed_count}){suffix}{ctx_suffix}")
 
     return changes
 
@@ -368,6 +440,110 @@ def _extract_form_changes(added_lines: list[str], removed_lines: list[str]) -> l
         names_str = "「" + "」「".join(removed_set[:5]) + "」"
         suffix = f"など{len(removed_set)}項目" if len(removed_set) > 5 else ""
         changes.append(f"フォームフィールド削除: {names_str}{suffix}")
+
+    return changes
+
+
+# ─────────────────────────────────────────────
+# 2.5. テーブル変更の抽出（構造変更 vs UIテキスト更新を区別）
+# ─────────────────────────────────────────────
+
+def _extract_table_changes(added_lines: list[str], removed_lines: list[str]) -> list[str]:
+    """Detect table structure and header text changes.
+
+    Distinguishes between:
+    - Structure changes: columns added/removed (high value)
+    - UI text updates: header label text changed (medium value, could be content refresh)
+    - Placeholder normalization: [TEXT] → real text (likely baseline reset, lower value)
+
+    This helps users quickly determine if a table change is a genuine UI update
+    or just normalization noise from snapshot format changes.
+    """
+    changes = []
+
+    added_text = "\n".join(added_lines)
+    removed_text = "\n".join(removed_lines)
+
+    # Count table elements
+    added_tables = len(re.findall(r'<table\b', added_text, re.IGNORECASE))
+    removed_tables = len(re.findall(r'<table\b', removed_text, re.IGNORECASE))
+
+    added_thead = len(re.findall(r'<thead\b', added_text, re.IGNORECASE))
+    removed_thead = len(re.findall(r'<thead\b', removed_text, re.IGNORECASE))
+
+    added_th = len(re.findall(r'<th\b', added_text, re.IGNORECASE))
+    removed_th = len(re.findall(r'<th\b', removed_text, re.IGNORECASE))
+
+    # Get context
+    context = _extract_surrounding_context(added_lines) or _extract_surrounding_context(removed_lines)
+    ctx_suffix = _format_context_suffix(context)
+
+    # 1. Table structure changes (table/thead added or removed)
+    if added_tables > removed_tables:
+        changes.append(f"テーブル構造が追加 (+{added_tables - removed_tables}){ctx_suffix}")
+    elif removed_tables > added_tables:
+        changes.append(f"テーブル構造が削除 (-{removed_tables - added_tables}){ctx_suffix}")
+
+    # 2. Column structure changes (th count changed)
+    if added_th > removed_th + 1:  # Allow for small variations
+        changes.append(f"テーブル列が追加（{added_th - removed_th}列）{ctx_suffix}")
+    elif removed_th > added_th + 1:
+        changes.append(f"テーブル列が削除（{removed_th - added_th}列）{ctx_suffix}")
+
+    # 3. Header text changes (extract actual header text values)
+    th_pattern = re.compile(r'<th[^>]*>(.*?)</th>', re.DOTALL | re.IGNORECASE)
+
+    added_headers = []
+    for match in th_pattern.findall(added_text):
+        clean = re.sub(r'\s+', ' ', _strip_html(match)).strip()
+        if clean:
+            added_headers.append(clean)
+
+    removed_headers = []
+    for match in th_pattern.findall(removed_text):
+        clean = re.sub(r'\s+', ' ', _strip_html(match)).strip()
+        if clean:
+            removed_headers.append(clean)
+
+    # Detect [TEXT] → real text transitions (likely normalization, not real change)
+    placeholder_to_real = []
+    real_text_changes = []
+
+    for removed_h in removed_headers:
+        # Check if this is a placeholder that got replaced with real text
+        if '[TEXT]' in removed_h:
+            for added_h in added_headers:
+                if '[TEXT]' not in added_h and added_h not in removed_headers:
+                    placeholder_to_real.append(f"「{_truncate(removed_h, 15)}」→「{_truncate(added_h, 15)}」")
+                    break
+        else:
+            # Real text to different real text (genuine UI update)
+            for added_h in added_headers:
+                if added_h != removed_h and '[TEXT]' not in added_h and added_h not in removed_headers:
+                    real_text_changes.append(f"「{_truncate(removed_h, 15)}」→「{_truncate(added_h, 15)}」")
+                    break
+
+    # Report with appropriate context about change type
+    if placeholder_to_real:
+        # This is likely normalization noise from snapshot format change
+        changes.append(
+            f"テーブルヘッダー表示変更（正規化）: {', '.join(placeholder_to_real[:3])}"
+            f"{'など' if len(placeholder_to_real) > 3 else ''}{ctx_suffix}"
+        )
+
+    if real_text_changes:
+        # This is a genuine UI text update - higher value
+        changes.append(
+            f"テーブルヘッダーUIテキスト更新: {', '.join(real_text_changes[:3])}"
+            f"{'など' if len(real_text_changes) > 3 else ''}{ctx_suffix}"
+        )
+
+    # 4. New headers added (without corresponding removal)
+    new_headers = [h for h in added_headers if h not in removed_headers and '[TEXT]' not in h]
+    if new_headers and not (added_th > removed_th):  # Don't duplicate with column count
+        changes.append(
+            f"テーブルヘッダー追加:「{'」「'.join([_truncate(h, 12) for h in new_headers[:3]])}」{ctx_suffix}"
+        )
 
     return changes
 

@@ -53,15 +53,65 @@ EXCLUDE_SELECTORS = [
     '.pickup-item',
     '[class*="recommend-item"]',
     '[class*="pickup-item"]',
-    # Campaign and ad banners (content changes frequently, not structural)
+
+    # ───────────────────────────────────────────
+    # Campaign, promotion, and advertising banners
+    # (content changes frequently, not structural UI changes)
+    # ───────────────────────────────────────────
     '.campaign-banner',
     '.p-campaign',
     '[class*="campaign-banner"]',
     '[class*="CampaignBanner"]',
+    '[class*="Campaign"]',         # SUUMO/athome: Campaign-named components
+    '[class*="campaign"]',
     '[class*="ad-area"]',
     '[class*="AdArea"]',
-    # Dynamic elements
+    '[class*="ad-banner"]',
+    '[class*="AdBanner"]',
     '.ad-banner',
+    # Promotion / promo banners
+    '[class*="promo-banner"]',
+    '[class*="PromoBanner"]',
+    '[class*="promotion"]',
+    '[class*="Promotion"]',
+    '.promo-banner',
+    '.promotion-banner',
+    '.promo-area',
+    # Notice / info banners (seasonal messages, COVID info, etc.)
+    '[class*="notice-banner"]',
+    '[class*="NoticeBanner"]',
+    '[class*="info-banner"]',
+    '[class*="InfoBanner"]',
+    '.notice-banner',
+    '.info-banner',
+    '.announcement-banner',
+    '[class*="announcement"]',
+    # Seasonal / event banners
+    '[class*="seasonal"]',
+    '[class*="Seasonal"]',
+    '[class*="event-banner"]',
+    '[class*="EventBanner"]',
+    '.seasonal-banner',
+    '.event-banner',
+    # Partner / sponsor / affiliate banners
+    '[class*="sponsor"]',
+    '[class*="Sponsor"]',
+    '[class*="partner-banner"]',
+    '[class*="PartnerBanner"]',
+    '[class*="affiliate"]',
+    '[class*="Affiliate"]',
+    '.sponsor-banner',
+    '.partner-banner',
+    '.affiliate-banner',
+    # Feature highlight / special offer sections
+    '[class*="special-offer"]',
+    '[class*="SpecialOffer"]',
+    '[class*="feature-highlight"]',
+    '[class*="FeatureHighlight"]',
+    '.special-offer',
+    '.feature-highlight',
+
+    # Dynamic elements
     '.ranking-position',
     'time',
     '[datetime]',
@@ -69,6 +119,37 @@ EXCLUDE_SELECTORS = [
     '.cookie-consent',
     '.modal-overlay',
     '#cookie-banner',
+
+    # ───────────────────────────────────────────
+    # Framework / SDK internal elements (noise from SPA rendering)
+    # ───────────────────────────────────────────
+    '#fb-root',               # Facebook SDK container (always present, content varies)
+    '#__next',                # Next.js root container (SPA rendering inconsistency)
+    '#__nuxt',                # Nuxt.js root container
+    '#app',                   # Vue.js common root (too generic, but often SPA noise)
+    '[id^="fb-"]',            # Facebook widget containers
+    '[class*="fb-"]',         # Facebook widget classes
+
+    # ───────────────────────────────────────────
+    # Accessibility skip links (dynamic visibility)
+    # ───────────────────────────────────────────
+    '[class*="skip-link"]',
+    '[class*="skiplink"]',
+    '[class*="skip-to"]',
+    '[class*="skipto"]',
+    '.skip-navigation',
+    '.skip-content',
+    'a[href="#main"]',
+    'a[href="#content"]',
+
+    # ───────────────────────────────────────────
+    # Station/area listing counts (change daily with inventory)
+    # ───────────────────────────────────────────
+    '.station-count',
+    '[class*="station-count"]',
+    '[class*="listing-count"]',
+    '[class*="item-count"]',
+    '[class*="result-count"]',
 ]
 
 # Patterns for dynamic URL segments to normalize
@@ -104,6 +185,13 @@ _RECOMMEND_SECTION_PATTERNS = re.compile(
 
 # Normalization version marker — bumped each time extract_structure logic changes.
 # main.py uses this to detect old snapshots and skip comparison (baseline_reset).
+# V6 changes vs V5:
+#   - EXCLUDE_SELECTORS: added framework containers (#fb-root, #__next, #__nuxt),
+#     skip links, station/listing count elements
+#   - _PROPERTY_NOISE_PATTERNS: added count patterns ((328), 328件, 523,984台)
+# V5 changes vs V4:
+#   - EXCLUDE_SELECTORS: expanded campaign/ad/promo/notice/sponsor/affiliate/seasonal
+#     selectors to reduce banner noise notifications
 # V4 changes vs V3:
 #   - EXCLUDE_SELECTORS: added SUUMO cassette cards, Canary React component selectors,
 #     Homes detail blocks, recommend/pickup/campaign/ad-area selectors across all services
@@ -114,7 +202,7 @@ _RECOMMEND_SECTION_PATTERNS = re.compile(
 #   - meta[name="description"] / og:description content → [META_DESCRIPTION]
 #   - meta[name="keywords"] content → [META_KEYWORDS]
 #   - .searchitem-list-value (SUUMO station counts) → removed from DOM
-NORM_VERSION_MARKER = "<!-- NORM_V4 -->"
+NORM_VERSION_MARKER = "<!-- NORM_V6 -->"
 
 
 def _normalize_asset_url(tag: Tag, val: str) -> str:
@@ -265,6 +353,9 @@ _PROPERTY_NOISE_PATTERNS = [
     r'\d+\.\d+㎡',               # 面積 (小数点あり)
     r'20\d{2}/\d{1,2}/\d{1,2}', # 日付
     r'20\d{2}年\d{1,2}月',       # 日付
+    r'\(\d[\d,]*\)',             # 物件数カウント (e.g., "(328)", "(3,966)")
+    r'[\d,]+件',                 # 件数表示 (e.g., "328件", "3,966件")
+    r'[\d,]+台',                 # 台数表示 (e.g., "523,984台")
 ]
 
 _PROPERTY_NOISE_RE = re.compile('|'.join(_PROPERTY_NOISE_PATTERNS))
