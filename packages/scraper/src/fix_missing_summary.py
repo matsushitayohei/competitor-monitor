@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """One-shot script to recover body_text and generate summary for articles
-that are stuck in 'pending' classification because body fetch failed and
-the article has since dropped off the listing page.
+that are stuck with an empty body and no summary, regardless of classification status.
+
+These are articles that:
+- Were classified as relevant/irrelevant without a body (edge case), OR
+- Have classification="pending" with empty body (normal stuck case)
+- Either way, summary is NULL
 
 Usage:
     python packages/scraper/src/fix_missing_summary.py [--dry-run]
 
-For each pending article with empty bodyText:
+For each article with empty bodyText and null summary:
 1. Re-fetches the article page via httpx
 2. Parses body text with the appropriate parser
 3. Runs classification + summarization
@@ -48,6 +52,45 @@ _HEADERS = {
     "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
     "Cache-Control": "no-cache",
 }
+
+
+def get_articles_needing_summary() -> list[dict]:
+    """Fetch articles that have no summary and either empty body or pending status.
+
+    Covers two stuck states:
+    1. classification='pending' + empty body  (body fetch failed at scrape time)
+    2. Any classification + empty body + null summary  (classified without body, edge case)
+    """
+    import psycopg2.extras
+    from db import get_connection, release_connection
+
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT
+                    pa.id,
+                    pa."sourceId" as source_id,
+                    pa.title,
+                    pa."articleUrl" as article_url,
+                    pa."publishedAt" as published_at,
+                    pa."bodyText" as body_text,
+                    pa.classification,
+                    pa."relevanceCategory" as relevance_category,
+                    ps.name as source_name
+                FROM press_article pa
+                JOIN press_source ps ON pa."sourceId" = ps.id
+                WHERE pa."deletedAt" IS NULL
+                  AND pa.summary IS NULL
+                  AND (
+                      pa."bodyText" IS NULL
+                      OR pa."bodyText" = ''
+                  )
+                ORDER BY pa."createdAt" ASC
+            """)
+            return [dict(row) for row in cur.fetchall()]
+    finally:
+        release_connection(conn)
 
 
 async def fetch_body_via_httpx(url: str) -> str:
@@ -149,23 +192,20 @@ async def main() -> None:
     if dry_run:
         logger.info("=== DRY RUN MODE (no DB writes) ===")
 
-    # Fetch all pending articles
-    pending = get_pending_articles()
-    # Filter to those with empty body
-    body_empty = [a for a in pending if not (a.get("body_text") or "").strip()]
+    # Fetch articles with empty body and no summary
+    target = get_articles_needing_summary()
 
     logger.info(
-        f"Pending articles: {len(pending)} total, "
-        f"{len(body_empty)} with empty body"
+        f"Articles with empty body and no summary: {len(target)}"
     )
 
-    if not body_empty:
+    if not target:
         logger.info("Nothing to recover.")
         return
 
     recovered = 0
     failed = 0
-    for article in body_empty:
+    for article in target:
         success = await recover_article(article, dry_run=dry_run)
         if success:
             recovered += 1
