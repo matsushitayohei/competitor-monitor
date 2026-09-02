@@ -22,15 +22,17 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "analyzer", "src"))
 
-from press_scraper import run_press_scraper
+from press_scraper import run_press_scraper, _fetch_article_body_via_httpx
 from press_classifier import classify_press_article
 from press_summarizer import summarize_press_article
 from press_notifier import notify_press_article
 from press_db import (
     get_pending_articles,
+    update_article_body,
     update_article_classification,
     update_article_summary,
 )
+from press_parsers import get_parser_for_source
 
 # Configure logging
 logging.basicConfig(
@@ -39,6 +41,70 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+
+
+async def refetch_bodyless_pending_articles() -> dict:
+    """Re-fetch body text for pending articles whose body was never captured.
+
+    These articles get stuck permanently in 'pending' because:
+    - The initial body fetch failed (timeout / 403).
+    - The article has since dropped off the listing page, so the normal
+      scraper's recovery path (get_incomplete_article) never fires again.
+
+    This step runs directly against each article URL via httpx (no Playwright),
+    which is sufficient for most corporate press pages. On success the body is
+    saved and the article re-enters the normal classify → summarize pipeline on
+    the same run (via process_pending_articles which is called right after).
+
+    Returns:
+        Dict with stats: attempted, recovered, failed.
+    """
+    stats = {"attempted": 0, "recovered": 0, "failed": 0}
+
+    pending = get_pending_articles()
+    bodyless = [a for a in pending if not (a.get("body_text") or "").strip()]
+
+    if not bodyless:
+        logger.info("  No bodyless pending articles to recover.")
+        return stats
+
+    logger.info(f"  Found {len(bodyless)} pending article(s) with empty body. Attempting re-fetch...")
+
+    for article in bodyless:
+        article_id = article["id"]
+        title = article.get("title", "")
+        url = article.get("article_url", "")
+        source_name = article.get("source_name", "")
+        stats["attempted"] += 1
+
+        try:
+            html = await _fetch_article_body_via_httpx(url)
+            parser = get_parser_for_source(source_name)
+            body_text = parser.parse_article_body(html)
+
+            if not body_text or not body_text.strip():
+                logger.warning(
+                    f"  Re-fetch body empty for '{title[:50]}' — will retry next run."
+                )
+                stats["failed"] += 1
+                continue
+
+            published_at = parser._extract_date_from_article_page(html)
+            update_article_body(article_id, body_text, published_at)
+            stats["recovered"] += 1
+            logger.info(
+                f"  Recovered body for '{title[:50]}' ({len(body_text)} chars)"
+            )
+
+        except Exception as e:
+            logger.warning(
+                f"  Re-fetch failed for '{title[:50]}' ({url}): {e}"
+            )
+            stats["failed"] += 1
+
+        await asyncio.sleep(1.0)  # polite delay between requests
+
+    return stats
 
 
 async def notify_source_failure(error: dict) -> None:
@@ -205,6 +271,7 @@ async def main() -> None:
 
     Flow:
     1. Run scraper → saves new articles with classification="pending"
+    1.5. Re-fetch body for pending articles with empty body (dropped from listing page)
     2. Process all pending articles (classify → summarize → notify)
     3. Send failure notifications for sources that failed to scrape
     4. Print summary
@@ -225,6 +292,19 @@ async def main() -> None:
         f"Scraper complete: {total_sources} sources, "
         f"{new_articles} new articles, "
         f"{len(scraper_errors)} errors"
+    )
+
+    # Step 1.5: Re-fetch body text for pending articles that never got a body.
+    # These are articles saved in previous runs where the body fetch failed and
+    # the article has since dropped off the listing page (so normal recovery
+    # via get_incomplete_article no longer fires). We retry via httpx before
+    # processing, so they flow through classify → summarize in the same run.
+    logger.info("Step 1.5: Re-fetching bodyless pending articles...")
+    refetch_stats = await refetch_bodyless_pending_articles()
+    logger.info(
+        f"Re-fetch complete: {refetch_stats['attempted']} attempted, "
+        f"{refetch_stats['recovered']} recovered, "
+        f"{refetch_stats['failed']} failed"
     )
 
     # Step 2: Process pending articles (classify → summarize → notify)
@@ -253,6 +333,7 @@ async def main() -> None:
     logger.info("Press Release Monitor Pipeline - Complete")
     logger.info(f"  Total sources processed: {total_sources}")
     logger.info(f"  New articles scraped:    {new_articles}")
+    logger.info(f"  Bodyless re-fetched:     {refetch_stats['recovered']}/{refetch_stats['attempted']}")
     logger.info(f"  Articles classified:     {process_stats['classified']}")
     logger.info(f"  Articles summarized:     {process_stats['summarized']}")
     logger.info(f"  Notifications sent:      {process_stats['notified']}")
@@ -264,6 +345,7 @@ async def main() -> None:
         f"\nPress Release Monitor Complete: "
         f"{total_sources} sources, "
         f"{new_articles} new articles, "
+        f"{refetch_stats['recovered']} recovered, "
         f"{total_errors} errors"
     )
 
