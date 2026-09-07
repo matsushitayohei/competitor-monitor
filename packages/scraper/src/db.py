@@ -258,9 +258,12 @@ def is_duplicate_change(page_id: str, diff_text: str) -> bool:
     - Same diff on a different day → saved (page reverted; worth recording)
     - Different diff on the same day → saved (page genuinely changed twice)
 
-    Falls back to checking the most recent change (regardless of date) when no
-    same-day change exists, to catch the common alternating-diff pattern where
-    a transient section causes the same diff on back-to-back days.
+    Falls back to checking any change within the last 7 days for an identical
+    diff. This catches alternating-diff flaps (A→B→A→B on consecutive days)
+    where a transient section toggles on/off: comparing only the single most
+    recent change missed these, because the immediately previous change was the
+    opposite state. A 7-day window absorbs weekly rendering flaps while still
+    recording a genuine re-change that recurs after more than a week.
 
     Args:
         page_id: The monitored page ID.
@@ -286,17 +289,18 @@ def is_duplicate_change(page_id: str, diff_text: str) -> bool:
             if cur.fetchone():
                 return True
 
-            # Fallback check: most recent change (any date) has identical diff.
-            # Catches alternating-day rendering flaps without date restriction.
+            # Fallback check: identical diff seen anywhere in the last 7 days.
+            # Catches alternating-day / weekly rendering flaps where the same
+            # transient diff recurs but is not the single most-recent change.
             cur.execute("""
-                SELECT "diffText"
+                SELECT 1
                 FROM "Change"
                 WHERE "pageId" = %s
-                ORDER BY "detectedAt" DESC
+                  AND "diffText" = %s
+                  AND "detectedAt" >= (now() AT TIME ZONE 'UTC') - interval '7 days'
                 LIMIT 1
-            """, (page_id,))
-            row = cur.fetchone()
-            if row and row[0] == diff_text:
+            """, (page_id, diff_text))
+            if cur.fetchone():
                 return True
 
             return False

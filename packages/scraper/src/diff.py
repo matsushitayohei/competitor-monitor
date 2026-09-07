@@ -234,6 +234,25 @@ _PROPERTY_ID_QUERY = re.compile(
     re.IGNORECASE,
 )
 
+# Content / property photo URLs. These rotate whenever the listing photo set
+# changes (new gallery image, reordered thumbnails) and are NOT structural UI.
+# Matched by CDN host + a property-photo path so that logos/icons/sprites on the
+# same host are left intact.
+#   SUUMO/DOOR: https://img01.suumo.com/front/gazo/fr/bukken/365/100524729365/..._co.jpg
+#   goo-net:    https://img.goo-net.com/.../usedcar/.../photo...jpg
+_CONTENT_IMG_URL = re.compile(
+    r'https?://[^"\']*?'
+    r'(?:/gazo/|/bukken/|/usedcar/|/photo/|/images?/upload|/media/|/img/property)'
+    r'[^"\']*?\.(?:jpg|jpeg|png|webp|gif)',
+    re.IGNORECASE,
+)
+
+# Substrings that mark an image as a stable UI asset (never normalize these).
+_UI_ASSET_HINTS = (
+    'logo', 'icon', 'favicon', 'sprite', 'common', 'ui/', '/assets/common',
+    'statement', 'recruit',
+)
+
 # per-property UUID embedded in a DOM id attribute,
 # e.g. favorite_button_property_01a05785-b2e3-...
 # UUID-only to avoid clobbering legitimate structural ids like "section_123456".
@@ -250,6 +269,11 @@ _RECOMMEND_SECTION_PATTERNS = re.compile(
 
 # Normalization version marker — bumped each time extract_structure logic changes.
 # main.py uses this to detect old snapshots and skip comparison (baseline_reset).
+# V9 changes vs V8:
+#   - Content/property photos normalized to [CONTENT_IMG] (img src, data-original,
+#     data-imgs) so swapping a listing photo / reordering gallery thumbnails no
+#     longer registers as a UI change. UI assets (logo/icon/sprite/common) kept.
+#   (paired with db.is_duplicate_change 7-day window to suppress recurring flaps)
 # V8 changes vs V7:
 #   - Whitespace-only text nodes are dropped instead of becoming [TEXT]
 #     (fixes Canary/SUUMO phantom diffs where only [TEXT] placeholder COUNT changed
@@ -281,7 +305,7 @@ _RECOMMEND_SECTION_PATTERNS = re.compile(
 #   - meta[name="description"] / og:description content → [META_DESCRIPTION]
 #   - meta[name="keywords"] content → [META_KEYWORDS]
 #   - .searchitem-list-value (SUUMO station counts) → removed from DOM
-NORM_VERSION_MARKER = "<!-- NORM_V8 -->"
+NORM_VERSION_MARKER = "<!-- NORM_V9 -->"
 
 
 def _normalize_asset_url(tag: Tag, val: str) -> str:
@@ -554,6 +578,21 @@ def _normalize_tag_attrs(tag: Tag) -> None:
         height = tag.get('height', '')
         if (str(width) in ('0', '1') and str(height) in ('0', '1')):
             tag['src'] = '[TRACKING_PIXEL]'
+
+        # Normalize content/property photos so a swapped listing image (new gallery
+        # photo, reordered thumbnails) does not register as a structural UI change.
+        # src, plus lazy-load (data-original) and SUUMO gallery (data-imgs) attrs.
+        for img_attr in ('src', 'data-original', 'data-imgs'):
+            v = tag.get(img_attr)
+            if not v or not isinstance(v, str):
+                continue
+            if v.startswith('['):  # already normalized (e.g. [TRACKING_PIXEL])
+                continue
+            low = v.lower()
+            if any(hint in low for hint in _UI_ASSET_HINTS):
+                continue  # keep logos/icons/sprites
+            if _CONTENT_IMG_URL.search(v):
+                tag[img_attr] = '[CONTENT_IMG]'
 
     # Normalize link[rel=preconnect/prefetch/preload] - order changes are noise
     if tag.name == 'link' and tag.get('rel'):
