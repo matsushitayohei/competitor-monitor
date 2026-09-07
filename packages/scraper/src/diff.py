@@ -150,6 +150,17 @@ EXCLUDE_SELECTORS = [
     '[class*="listing-count"]',
     '[class*="item-count"]',
     '[class*="result-count"]',
+
+    # ───────────────────────────────────────────
+    # Listing property rows (content rotates daily as inventory shuffles).
+    # These <tr>/<tbody> hold per-property data, not structural UI. Excluding
+    # them keeps the table header (a real UI element) detectable while removing
+    # the daily "table row added/removed" noise from row reordering.
+    # DOOR: table.table-secondary rows are clickable property rows.
+    # SUUMO: table.cassetteitem_other tbody holds property rows.
+    # ───────────────────────────────────────────
+    'tr[data-controller="clickable-row"]',
+    'table.cassetteitem_other tbody',
 ]
 
 # Patterns for dynamic URL segments to normalize
@@ -169,12 +180,49 @@ _META_NUMERIC_PATTERN = re.compile(
     r'[\d,]+(?:\.\d+)?\s*(?:件|棟|戸|台|室|区画|物件|軒|人|万|円|m²|㎡)'
 )
 
+# Meta names whose content is a per-request token / nonce (rotates every fetch).
+# Their content must be normalized or every scan reports a phantom line-1 diff.
+_DYNAMIC_META_NAMES = frozenset([
+    'csrf-token',
+    'csrf-param',
+    'csrf',
+    '_token',
+    'nonce',
+    'request-id',
+    'x-request-id',
+    'trace-id',
+])
+
 # Pattern to normalize property IDs embedded in URLs
 # e.g., /property/12345678/ → /property/[PROP_ID]/
 # Covers SUUMO, Homes, Canary, athome URL patterns.
 # Minimum 7 digits to avoid false-positives on short category IDs.
 _PROPERTY_ID_IN_URL = re.compile(
     r'(/(?:property|bukken|room|chintai|mansion|kodate|tochi|bld|jnc|nc)/)\d{7,}([/?#]|$)'
+)
+
+# DOOR uses UUID-based building/property paths that rotate as listings shuffle daily.
+# e.g. /buildings/01a05784-24d7-.../properties/01a05785-b2e3-... → [PROP_UUID]
+# Also matches SUUMO jnc slugs like /chintai/jnc_000108477494/
+_PROPERTY_UUID_IN_URL = re.compile(
+    r'(/(?:buildings|properties|property|bukken|room)/)'
+    r'(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|jnc_\d+|\d{6,})',
+    re.IGNORECASE,
+)
+
+# property_id in query strings, e.g. ?property_id=01a05785-b2e3-...
+_PROPERTY_ID_QUERY = re.compile(
+    r'([?&]property_id=)'
+    r'(?:[0-9a-f-]{16,}|\d{6,})',
+    re.IGNORECASE,
+)
+
+# per-property UUID embedded in a DOM id attribute,
+# e.g. favorite_button_property_01a05785-b2e3-...
+# UUID-only to avoid clobbering legitimate structural ids like "section_123456".
+_PROPERTY_ID_IN_DOM_ID = re.compile(
+    r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',
+    re.IGNORECASE,
 )
 
 # Patterns identifying recommend/related property sections (class or id)
@@ -185,6 +233,14 @@ _RECOMMEND_SECTION_PATTERNS = re.compile(
 
 # Normalization version marker — bumped each time extract_structure logic changes.
 # main.py uses this to detect old snapshots and skip comparison (baseline_reset).
+# V7 changes vs V6:
+#   - meta[name=csrf-token/csrf-param/nonce/request-id ...] content → [DYNAMIC_META]
+#     (fixes DOOR line-1 phantom diff from rotating Rails CSRF token)
+#   - _PROPERTY_UUID_IN_URL: normalize DOOR /buildings/{uuid}/properties/{uuid}
+#     and SUUMO /chintai/jnc_xxx slugs in hrefs/actions
+#   - EXCLUDE_SELECTORS: drop listing property rows (tr[data-controller=clickable-row],
+#     table.cassetteitem_other tbody) so row reordering no longer fires false CRO changes
+#   - _normalize_tag_attrs: normalize form action / turbo-frame id carrying property_id
 # V6 changes vs V5:
 #   - EXCLUDE_SELECTORS: added framework containers (#fb-root, #__next, #__nuxt),
 #     skip links, station/listing count elements
@@ -202,7 +258,7 @@ _RECOMMEND_SECTION_PATTERNS = re.compile(
 #   - meta[name="description"] / og:description content → [META_DESCRIPTION]
 #   - meta[name="keywords"] content → [META_KEYWORDS]
 #   - .searchitem-list-value (SUUMO station counts) → removed from DOM
-NORM_VERSION_MARKER = "<!-- NORM_V6 -->"
+NORM_VERSION_MARKER = "<!-- NORM_V7 -->"
 
 
 def _normalize_asset_url(tag: Tag, val: str) -> str:
@@ -225,6 +281,9 @@ def _normalize_asset_url(tag: Tag, val: str) -> str:
 
     # Normalize property IDs in URLs (listing-specific numeric IDs change daily)
     result = _PROPERTY_ID_IN_URL.sub(r'\1[PROP_ID]\2', result)
+
+    # Normalize UUID / slug property IDs (DOOR buildings, SUUMO jnc slugs)
+    result = _PROPERTY_UUID_IN_URL.sub(r'\1[PROP_UUID]', result)
 
     return result
 
@@ -264,6 +323,13 @@ def extract_structure(html: str, exclude_selectors: Optional[list] = None) -> st
             continue
         meta_name = meta.get('name', '').lower()
         meta_prop = meta.get('property', '').lower()
+
+        # CSRF tokens / nonces embedded in meta tags rotate on every request.
+        # e.g. <meta name="csrf-token" content="qc-mKmL1XG9..."> (DOOR/Rails apps)
+        # Left un-normalized, they produce a spurious diff on line 1 every scan.
+        if meta_name in _DYNAMIC_META_NAMES:
+            meta['content'] = '[DYNAMIC_META]'
+            continue
 
         # description / og:description contain property-specific text (room names,
         # addresses, area info) that changes whenever the monitored URL rotates to a
@@ -415,6 +481,19 @@ def _normalize_tag_attrs(tag: Tag) -> None:
         val = tag.get(attr)
         if val and isinstance(val, str):
             tag[attr] = _normalize_asset_url(tag, val)
+
+    # Normalize form action carrying a per-property id
+    # e.g. <form action="/favorites?property_id=01a05785-b2e3-..."> (DOOR favorites)
+    action = tag.get('action')
+    if action and isinstance(action, str):
+        action = _PROPERTY_ID_QUERY.sub(r'\1[PROP_ID]', action)
+        tag['action'] = _PROPERTY_UUID_IN_URL.sub(r'\1[PROP_UUID]', action)
+
+    # Normalize turbo-frame / element id carrying a per-property id
+    # e.g. id="favorite_button_property_01a05785-b2e3-..." (DOOR)
+    el_id = tag.get('id')
+    if el_id and isinstance(el_id, str) and _PROPERTY_ID_IN_DOM_ID.search(el_id):
+        tag['id'] = _PROPERTY_ID_IN_DOM_ID.sub('[PROP_ID_NODE]', el_id)
 
     # Remove common dynamic/tracking attributes entirely
     dynamic_attrs_to_remove = [
