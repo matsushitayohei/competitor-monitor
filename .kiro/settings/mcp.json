@@ -21,7 +21,8 @@
         "query_press_articles",
         "get_latest_press_articles",
         "list_press_sources"
-      ]
+      ],
+      "disabledTools": []
     }
   }
 }
