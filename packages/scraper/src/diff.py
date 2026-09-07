@@ -129,6 +129,23 @@ EXCLUDE_SELECTORS = [
     '#app',                   # Vue.js common root (too generic, but often SPA noise)
     '[id^="fb-"]',            # Facebook widget containers
     '[class*="fb-"]',         # Facebook widget classes
+    # React portals / route announcer (Canary): empty <div class="ReactModalPortal">
+    # nodes are appended by react-modal on every render; their count fluctuates
+    # run-to-run and produced daily phantom "モーダルが削除" diffs.
+    '.ReactModalPortal',
+    'next-route-announcer',
+    '#__next-route-announcer__',
+    '[class*="ReactModalPortal"]',
+
+    # ───────────────────────────────────────────
+    # SUUMO server-rendered hidden helper elements that render intermittently.
+    # These are display:none forms/headers emitted at the top of <body>; SSR
+    # timing decides whether they appear, producing phantom "フォームが削除" and
+    # "header_area 削除" diffs unrelated to real UI changes.
+    # ───────────────────────────────────────────
+    '#fr301fd001MailForm',    # SUUMO detail: hidden mail-request form
+    '#header_area',           # SUUMO detail: display:none global header block
+    '#sonota_tenpo_form',     # SUUMO detail: hidden "other store" form
 
     # ───────────────────────────────────────────
     # Accessibility skip links (dynamic visibility)
@@ -233,6 +250,12 @@ _RECOMMEND_SECTION_PATTERNS = re.compile(
 
 # Normalization version marker — bumped each time extract_structure logic changes.
 # main.py uses this to detect old snapshots and skip comparison (baseline_reset).
+# V8 changes vs V7:
+#   - Whitespace-only text nodes are dropped instead of becoming [TEXT]
+#     (fixes Canary/SUUMO phantom diffs where only [TEXT] placeholder COUNT changed
+#     between runs due to SPA blank-node fluctuation)
+#   - EXCLUDE_SELECTORS: .ReactModalPortal / next-route-announcer (Canary portals),
+#     SUUMO hidden helper elements (#fr301fd001MailForm, #header_area, #sonota_tenpo_form)
 # V7 changes vs V6:
 #   - meta[name=csrf-token/csrf-param/nonce/request-id ...] content → [DYNAMIC_META]
 #     (fixes DOOR line-1 phantom diff from rotating Rails CSRF token)
@@ -258,7 +281,7 @@ _RECOMMEND_SECTION_PATTERNS = re.compile(
 #   - meta[name="description"] / og:description content → [META_DESCRIPTION]
 #   - meta[name="keywords"] content → [META_KEYWORDS]
 #   - .searchitem-list-value (SUUMO station counts) → removed from DOM
-NORM_VERSION_MARKER = "<!-- NORM_V7 -->"
+NORM_VERSION_MARKER = "<!-- NORM_V8 -->"
 
 
 def _normalize_asset_url(tag: Tag, val: str) -> str:
@@ -368,10 +391,17 @@ def extract_structure(html: str, exclude_selectors: Optional[list] = None) -> st
                 img['src'] = '[RECOMMEND_IMG]'
 
     # Selectively normalize text content:
+    # - Drop whitespace-only nodes entirely (SPA rendering appends/removes blank
+    #   text nodes between elements run-to-run; keeping them as [TEXT] caused
+    #   phantom diffs where only the count of [TEXT] placeholders changed)
     # - Keep text in CRO-significant elements (buttons, headings, links, labels)
     # - Replace text in property-specific / noise elements with [TEXT]
     for text_node in soup.find_all(string=True):
         if text_node.parent and text_node.parent.name not in ['script', 'style']:
+            # Whitespace-only nodes carry no structural signal → remove
+            if not str(text_node).strip():
+                text_node.extract()
+                continue
             if _should_preserve_text(text_node.parent):
                 # Check if preserved text contains property-specific noise
                 text_content = str(text_node).strip()
