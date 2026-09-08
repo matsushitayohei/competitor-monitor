@@ -206,6 +206,40 @@ EXCLUDE_SELECTORS = [
     # ───────────────────────────────────────────
     '[class*="js-pc"]',
     '[class*="js-pcLink"]',   # more specific variant; [class*="js-pc"] already covers it
+
+    # ───────────────────────────────────────────
+    # SUUMO floating UI sections that depend on SPA rendering timing.
+    # #js-mylist is a "my list" floating panel that SSR may or may not include
+    # depending on login state / rendering order — not a structural UI signal.
+    # ───────────────────────────────────────────
+    '#js-mylist',
+    '[id^="js-my"]',
+
+    # ───────────────────────────────────────────
+    # goo-net property detail footer (per-property related info).
+    # .gn-detail-shopdetail__foot holds per-vehicle related articles,
+    # review links, and QR codes that change with every listed vehicle.
+    # Example noise: 見出し(H2)削除「アルファード関連情報」, リンク削除「BW」
+    # ───────────────────────────────────────────
+    '.gn-detail-shopdetail__foot',
+    '[class*="gn-detail-shopdetail__foot"]',
+
+    # ───────────────────────────────────────────
+    # carsensor SP maker-selection modal (SSR hidden helper).
+    # #smph_tag is a display:none container for the SP manufacturer selection
+    # modal, rendered server-side but not always present — toggling its
+    # presence produced phantom "メーカー一覧 削除" diffs every scan.
+    # ───────────────────────────────────────────
+    '#smph_tag',
+
+    # ───────────────────────────────────────────
+    # DOOR property card container (content rotates daily).
+    # div.building-box__body holds per-property names, rental prices, and
+    # table headers ("家賃"/"管理費"/"敷金 / 礼金") that change as listings
+    # rotate. The box structure itself (the outer .building-box) is retained
+    # so true layout changes (e.g. card redesign) are still detectable.
+    # ───────────────────────────────────────────
+    'div.building-box__body',
 ]
 
 # Patterns for dynamic URL segments to normalize
@@ -297,6 +331,17 @@ _RECOMMEND_SECTION_PATTERNS = re.compile(
 
 # Normalization version marker — bumped each time extract_structure logic changes.
 # main.py uses this to detect old snapshots and skip comparison (baseline_reset).
+# V11 changes vs V10:
+#   - EXCLUDE_SELECTORS: #js-mylist / [id^="js-my"] — SUUMO floating "my list"
+#     panel whose SSR presence toggles by login state, causing phantom diffs.
+#   - EXCLUDE_SELECTORS: .gn-detail-shopdetail__foot — goo-net per-vehicle
+#     related articles/review links that rotate with each listed vehicle.
+#     Example noise: 見出し(H2)削除「アルファード関連情報」, リンク削除「BW」
+#   - EXCLUDE_SELECTORS: #smph_tag — carsensor SP maker-selection modal,
+#     display:none SSR helper that toggles run-to-run.
+#   - EXCLUDE_SELECTORS: div.building-box__body — DOOR property card content
+#     (names, table headers 家賃/管理費) that rotates with listing inventory.
+#     Outer .building-box kept so true layout redesigns remain detectable.
 # V10 changes vs V9:
 #   - EXCLUDE_SELECTORS: added side navigation/area listing boxes (.side_box,
 #     .p-sidenav, .sidenav, area-nav, station-nav, line-nav variants) that show
@@ -340,7 +385,7 @@ _RECOMMEND_SECTION_PATTERNS = re.compile(
 #   - meta[name="description"] / og:description content → [META_DESCRIPTION]
 #   - meta[name="keywords"] content → [META_KEYWORDS]
 #   - .searchitem-list-value (SUUMO station counts) → removed from DOM
-NORM_VERSION_MARKER = "<!-- NORM_V10 -->"
+NORM_VERSION_MARKER = "<!-- NORM_V11 -->"
 
 
 def _normalize_asset_url(tag: Tag, val: str) -> str:
