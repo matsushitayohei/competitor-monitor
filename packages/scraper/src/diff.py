@@ -186,15 +186,12 @@ EXCLUDE_SELECTORS = [
     # structural UI change. Excluding them eliminates daily noise like:
     #   見出し(H2)削除:「新宿区内の駅から探す」 @section.side_box
     #   リンク削除:「新宿駅」 @section.side_box
-    # SUUMO/athome both use .side_box; p-sidenav is a known athome variant.
+    # SUUMO/athome both use .side_box; sidenav covers .p-sidenav and variants.
     # ───────────────────────────────────────────
     '.side_box',
     '[class*="side_box"]',
     '[id*="side_box"]',
-    '.p-sidenav',
-    '[class*="p-sidenav"]',
-    '.sidenav',
-    '[class*="sidenav"]',
+    '[class*="sidenav"]',   # covers .sidenav, .p-sidenav, .left-sidenav etc.
     # Area/line navigation inside sidebars (e.g. 山手線, 総武線 station lists)
     '[class*="area-nav"]',
     '[class*="area_nav"]',
@@ -208,8 +205,7 @@ EXCLUDE_SELECTORS = [
     # They are not a structural UI change visible to end users.
     # ───────────────────────────────────────────
     '[class*="js-pc"]',
-    '.js-pcLink',
-    '[class*="js-pcLink"]',
+    '[class*="js-pcLink"]',   # more specific variant; [class*="js-pc"] already covers it
 ]
 
 # Patterns for dynamic URL segments to normalize
@@ -683,20 +679,12 @@ def compute_diff(old_structure: str, new_structure: str) -> Optional[dict]:
     if deletions == 0 and additions > 0 and (additions / total_lines) < 0.03:
         return None
 
-    # Minimum change threshold:
-    # Diffs with fewer than 3 net changed lines are almost always transient rendering
-    # noise (attribute order shuffles, blank node fluctuation, timestamp attributes).
-    # These also produce unactionable "DOM構造に変更を検知" summaries that users
-    # reported as clutter. Raising the floor from 0 to 3 discards them.
-    # NOTE: lxml serializes HTML to a single line, so a meaningful structural change
-    # (e.g. a new <section> with several elements) may still produce only 1-2 changed
-    # lines. The threshold therefore applies only when BOTH additions AND deletions are
-    # involved and both are very small — indicating an attribute-only micro-change, not
-    # a content addition.
-    if additions > 0 and deletions > 0 and (additions + deletions) <= 2:
-        # Symmetric ±1 swap: likely an attribute value rotation (e.g. aria-expanded,
-        # data-count) that slipped through normalization. Skip to reduce noise.
-        pass  # let it through for now — further heuristics in summarize.py will handle
+    # Minimum change threshold note (lxml output is single-line compressed):
+    # lxml serializes HTML onto one line, so even a multi-element addition produces
+    # only 1-2 diff lines. A simple line-count floor would incorrectly suppress real
+    # changes. The 3% SPA-timing guards above handle the actual noise cases.
+    # Symmetric ±1 attribute-only swaps (e.g. aria-expanded toggling) that slip through
+    # are handled downstream by summarize.py heuristics and the is_duplicate_change guard.
 
     return {
         "has_changes": True,

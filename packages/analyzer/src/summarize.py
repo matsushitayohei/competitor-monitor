@@ -125,7 +125,9 @@ def summarize_change(diff_text: str) -> str:
         return f"{', '.join(top)}周辺の構造変更（{total_changes}行）— 詳細はDOM差分を参照"
 
     if total_changes > 0:
-        return f"DOM構造の変更（+{len([l for l in lines if l.startswith('+') and not l.startswith('++')])}行 -{len([l for l in lines if l.startswith('-') and not l.startswith('--')])}行）— 詳細はDOM差分を参照"
+        n_added = len([l for l in lines if l.startswith('+') and not l.startswith('+++')])
+        n_removed = len([l for l in lines if l.startswith('-') and not l.startswith('---')])
+        return f"DOM構造の変更（+{n_added}行 -{n_removed}行）— 詳細はDOM差分を参照"
     return "DOM構造に軽微な変更を検知（内容は差分タブを参照）"
 
 
@@ -418,15 +420,22 @@ def _extract_form_changes(added_lines: list[str], removed_lines: list[str]) -> l
         names = []
         for line in lines_list:
             if field_pattern.search(line):
-                for m in name_attrs.finditer(line):
-                    val = m.group(1).strip()
-                    if val and val not in ("[TEXT]", "[HIDDEN_VALUE]") and not val.startswith("["):
-                        # Skip JS-controlled helper field names that are implementation
-                        # details, not user-visible form fields (e.g. js-pcLink, js-spLink).
-                        if _is_noise_field_name(val):
-                            break
-                        names.append(_truncate(val, 15))
-                        break
+                # Collect all matching attribute values from this line first, then
+                # evaluate noise. This avoids false-negatives caused by attribute
+                # order (e.g. placeholder="住所" name="js-pcLink" — if we stopped at
+                # the first match, the noise name would slip through as "住所").
+                found = [
+                    m.group(1).strip()
+                    for m in name_attrs.finditer(line)
+                    if m.group(1).strip()
+                    and m.group(1).strip() not in ("[TEXT]", "[HIDDEN_VALUE]")
+                    and not m.group(1).strip().startswith("[")
+                ]
+                # If ANY of the field's identifiers is a noise name, skip the whole field
+                if any(_is_noise_field_name(v) for v in found):
+                    continue
+                if found:
+                    names.append(_truncate(found[0], 15))
         return names
 
     added_fields = _field_names(added_lines)
