@@ -211,6 +211,9 @@ EXCLUDE_SELECTORS = [
     # SUUMO floating UI sections that depend on SPA rendering timing.
     # #js-mylist is a "my list" floating panel that SSR may or may not include
     # depending on login state / rendering order — not a structural UI signal.
+    # NOTE: [id^="js-my"] covers #js-mylist; both are listed so the intent is
+    # explicit. This prefix is SUUMO-specific and unlikely to collide with other
+    # monitored services (goo-net, carsensor, DOOR use different naming conventions).
     # ───────────────────────────────────────────
     '#js-mylist',
     '[id^="js-my"]',
@@ -220,9 +223,9 @@ EXCLUDE_SELECTORS = [
     # .gn-detail-shopdetail__foot holds per-vehicle related articles,
     # review links, and QR codes that change with every listed vehicle.
     # Example noise: 見出し(H2)削除「アルファード関連情報」, リンク削除「BW」
+    # [class*=...] variant omitted — class-exact selector is sufficient.
     # ───────────────────────────────────────────
     '.gn-detail-shopdetail__foot',
-    '[class*="gn-detail-shopdetail__foot"]',
 
     # ───────────────────────────────────────────
     # carsensor SP maker-selection modal (SSR hidden helper).
@@ -233,13 +236,20 @@ EXCLUDE_SELECTORS = [
     '#smph_tag',
 
     # ───────────────────────────────────────────
-    # DOOR property card container (content rotates daily).
-    # div.building-box__body holds per-property names, rental prices, and
-    # table headers ("家賃"/"管理費"/"敷金 / 礼金") that change as listings
-    # rotate. The box structure itself (the outer .building-box) is retained
-    # so true layout changes (e.g. card redesign) are still detectable.
+    # DOOR property card (content rotates daily with inventory).
+    # div.building-box contains: __head (property name <h2>, label badge),
+    # __body (summary image, description, table with <thead> "家賃/管理費"
+    # and <tbody> of property rows), and __footer (link).
+    # The entire card content is per-property, so the whole .building-box
+    # is excluded. The outer list container structure (section, ul, etc.)
+    # is retained so true layout changes (e.g. card redesign, new sections)
+    # remain detectable.
+    # NOTE: tbody rows were already excluded via tr[data-controller="clickable-row"]
+    # in V7, but <thead> column headers ("家賃", "管理費") also varied because
+    # the number of .building-box cards on the page changes daily, causing
+    # multiple <thead> instances to appear/disappear as phantom column changes.
     # ───────────────────────────────────────────
-    'div.building-box__body',
+    'div.building-box',
 ]
 
 # Patterns for dynamic URL segments to normalize
@@ -334,14 +344,17 @@ _RECOMMEND_SECTION_PATTERNS = re.compile(
 # V11 changes vs V10:
 #   - EXCLUDE_SELECTORS: #js-mylist / [id^="js-my"] — SUUMO floating "my list"
 #     panel whose SSR presence toggles by login state, causing phantom diffs.
+#     Both entries kept: [id^="js-my"] is the covering rule, #js-mylist documents intent.
 #   - EXCLUDE_SELECTORS: .gn-detail-shopdetail__foot — goo-net per-vehicle
 #     related articles/review links that rotate with each listed vehicle.
 #     Example noise: 見出し(H2)削除「アルファード関連情報」, リンク削除「BW」
+#     (removed redundant [class*=...] variant, class-exact selector is sufficient)
 #   - EXCLUDE_SELECTORS: #smph_tag — carsensor SP maker-selection modal,
 #     display:none SSR helper that toggles run-to-run.
-#   - EXCLUDE_SELECTORS: div.building-box__body — DOOR property card content
-#     (names, table headers 家賃/管理費) that rotates with listing inventory.
-#     Outer .building-box kept so true layout redesigns remain detectable.
+#   - EXCLUDE_SELECTORS: div.building-box (whole DOOR property card, not just
+#     __body) — __head holds per-property <h2> name, __body holds table with
+#     <thead> column headers that appear/disappear as card count changes daily.
+#     Outer list container is retained so layout redesigns remain detectable.
 # V10 changes vs V9:
 #   - EXCLUDE_SELECTORS: added side navigation/area listing boxes (.side_box,
 #     .p-sidenav, .sidenav, area-nav, station-nav, line-nav variants) that show
