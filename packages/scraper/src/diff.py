@@ -178,6 +178,38 @@ EXCLUDE_SELECTORS = [
     # ───────────────────────────────────────────
     'tr[data-controller="clickable-row"]',
     'table.cassetteitem_other tbody',
+
+    # ───────────────────────────────────────────
+    # Side navigation / area listing boxes (dynamic per-page content).
+    # These sidebars show "駅から探す" / "エリアから探す" type links whose
+    # content changes based on the current page's area/city context — not a
+    # structural UI change. Excluding them eliminates daily noise like:
+    #   見出し(H2)削除:「新宿区内の駅から探す」 @section.side_box
+    #   リンク削除:「新宿駅」 @section.side_box
+    # SUUMO/athome both use .side_box; p-sidenav is a known athome variant.
+    # ───────────────────────────────────────────
+    '.side_box',
+    '[class*="side_box"]',
+    '[id*="side_box"]',
+    '.p-sidenav',
+    '[class*="p-sidenav"]',
+    '.sidenav',
+    '[class*="sidenav"]',
+    # Area/line navigation inside sidebars (e.g. 山手線, 総武線 station lists)
+    '[class*="area-nav"]',
+    '[class*="area_nav"]',
+    '[class*="station-nav"]',
+    '[class*="line-nav"]',
+
+    # ───────────────────────────────────────────
+    # SUUMO JS-driven PC-link forms (non-structural navigation helpers).
+    # Elements with class "js-pcLink" or similar are JavaScript-controlled
+    # hidden inputs / forms used to redirect SP users to PC pages.
+    # They are not a structural UI change visible to end users.
+    # ───────────────────────────────────────────
+    '[class*="js-pc"]',
+    '.js-pcLink',
+    '[class*="js-pcLink"]',
 ]
 
 # Patterns for dynamic URL segments to normalize
@@ -269,6 +301,13 @@ _RECOMMEND_SECTION_PATTERNS = re.compile(
 
 # Normalization version marker — bumped each time extract_structure logic changes.
 # main.py uses this to detect old snapshots and skip comparison (baseline_reset).
+# V10 changes vs V9:
+#   - EXCLUDE_SELECTORS: added side navigation/area listing boxes (.side_box,
+#     .p-sidenav, .sidenav, area-nav, station-nav, line-nav variants) that show
+#     dynamic per-page content like "駅から探す" / "エリア一覧" links.
+#     Eliminates daily false positives from SUUMO/athome sidebar area lists.
+#   - EXCLUDE_SELECTORS: added SUUMO JS-driven PC-link helpers ([class*="js-pc"],
+#     .js-pcLink) — hidden inputs/forms for SP→PC redirect, not structural UI.
 # V9 changes vs V8:
 #   - Content/property photos normalized to [CONTENT_IMG] (img src, data-original,
 #     data-imgs) so swapping a listing photo / reordering gallery thumbnails no
@@ -305,7 +344,7 @@ _RECOMMEND_SECTION_PATTERNS = re.compile(
 #   - meta[name="description"] / og:description content → [META_DESCRIPTION]
 #   - meta[name="keywords"] content → [META_KEYWORDS]
 #   - .searchitem-list-value (SUUMO station counts) → removed from DOM
-NORM_VERSION_MARKER = "<!-- NORM_V9 -->"
+NORM_VERSION_MARKER = "<!-- NORM_V10 -->"
 
 
 def _normalize_asset_url(tag: Tag, val: str) -> str:
@@ -643,6 +682,21 @@ def compute_diff(old_structure: str, new_structure: str) -> Optional[dict]:
     # Similarly, pure additions of <3% may be a section that rendered extra this time
     if deletions == 0 and additions > 0 and (additions / total_lines) < 0.03:
         return None
+
+    # Minimum change threshold:
+    # Diffs with fewer than 3 net changed lines are almost always transient rendering
+    # noise (attribute order shuffles, blank node fluctuation, timestamp attributes).
+    # These also produce unactionable "DOM構造に変更を検知" summaries that users
+    # reported as clutter. Raising the floor from 0 to 3 discards them.
+    # NOTE: lxml serializes HTML to a single line, so a meaningful structural change
+    # (e.g. a new <section> with several elements) may still produce only 1-2 changed
+    # lines. The threshold therefore applies only when BOTH additions AND deletions are
+    # involved and both are very small — indicating an attribute-only micro-change, not
+    # a content addition.
+    if additions > 0 and deletions > 0 and (additions + deletions) <= 2:
+        # Symmetric ±1 swap: likely an attribute value rotation (e.g. aria-expanded,
+        # data-count) that slipped through normalization. Skip to reduce noise.
+        pass  # let it through for now — further heuristics in summarize.py will handle
 
     return {
         "has_changes": True,

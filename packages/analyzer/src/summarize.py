@@ -125,8 +125,8 @@ def summarize_change(diff_text: str) -> str:
         return f"{', '.join(top)}周辺の構造変更（{total_changes}行）— 詳細はDOM差分を参照"
 
     if total_changes > 0:
-        return f"DOM構造の変更（{total_changes}行）— 詳細はDOM差分を参照"
-    return "DOM構造に変更を検知"
+        return f"DOM構造の変更（+{len([l for l in lines if l.startswith('+') and not l.startswith('++')])}行 -{len([l for l in lines if l.startswith('-') and not l.startswith('--')])}行）— 詳細はDOM差分を参照"
+    return "DOM構造に軽微な変更を検知（内容は差分タブを参照）"
 
 
 # ─────────────────────────────────────────────
@@ -421,6 +421,10 @@ def _extract_form_changes(added_lines: list[str], removed_lines: list[str]) -> l
                 for m in name_attrs.finditer(line):
                     val = m.group(1).strip()
                     if val and val not in ("[TEXT]", "[HIDDEN_VALUE]") and not val.startswith("["):
+                        # Skip JS-controlled helper field names that are implementation
+                        # details, not user-visible form fields (e.g. js-pcLink, js-spLink).
+                        if _is_noise_field_name(val):
+                            break
                         names.append(_truncate(val, 15))
                         break
         return names
@@ -578,6 +582,25 @@ def _truncate(text: str, max_len: int) -> str:
     if len(text) <= max_len:
         return text
     return text[:max_len] + "..."
+
+
+def _is_noise_field_name(name: str) -> bool:
+    """Return True if a form field name/id/placeholder is an implementation-detail
+    that should not appear in user-facing change summaries.
+
+    Examples that are noise:
+    - "js-pcLink"  : SUUMO JS helper that links SP→PC page (hidden navigation form)
+    - "js-spLink"  : SP counterpart of js-pcLink
+    - names that are pure CSS class identifiers with no semantic meaning
+    """
+    lower = name.lower()
+    noise_prefixes = ("js-pc", "js-sp", "js-link")
+    noise_exact = {"js-pclink", "js-splink", "js-pcform", "js-spform"}
+    if lower in noise_exact:
+        return True
+    if any(lower.startswith(p) for p in noise_prefixes):
+        return True
+    return False
 
 
 def _detect_elements(text: str) -> Counter:
