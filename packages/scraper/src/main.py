@@ -31,7 +31,7 @@ from db import (
 )
 from url_fallback import find_new_detail_url
 from expired_detector import is_expired_page
-from storage import upload_screenshot, png_to_jpeg
+from storage import upload_screenshot
 from visual_diff import generate_visual_diff
 from slack_notifier import send_slack_notification
 
@@ -186,11 +186,10 @@ async def scan_page(page_info: dict) -> dict:
         prev_snapshot = get_latest_snapshot(page_id)
 
         # 4. Save new snapshot (always, for archiving)
-        # フルページスクショは JPEG に変換して Blob 保存（PNG比 60〜80% 削減）。
-        # screenshotPath は次回スキャン時の visual diff 比較に必要なため継続保存する。
-        snapshot_jpeg = png_to_jpeg(screenshot_bytes, quality=60)
-        screenshot_path = upload_screenshot(snapshot_jpeg, page_id, device)
-        save_snapshot(page_id, dom_hash, dom_structure, screenshot_path)
+        # フルページスクショは Blob 保存しない。
+        # 以前は visual diff の比較に使っていたが、Blob 上限 (Hobby 1GB) を圧迫するため廃止。
+        # Visual diff の before 画像は前回の Change.afterScreenshotPath (クロップ済) を使う。
+        save_snapshot(page_id, dom_hash, dom_structure, screenshot_path=None)
 
         # 5. Compare with previous
         if prev_snapshot is None:
@@ -300,7 +299,16 @@ async def scan_page(page_info: dict) -> dict:
         result["priority"] = advice_data.get("priority", "low") if advice_data else "low"
 
         # 8. Save change to DB (with before/after cropped screenshots)
-        before_screenshot_path = prev_snapshot.get("screenshotPath") if prev_snapshot else None
+        # before_screenshot_path: 前回の Change.afterScreenshotPath (クロップ済) を使う。
+        # フルページスクショは Blob 保存廃止のため prev_snapshot.screenshotPath は常に null。
+        # 代わりに直前の変更レコードの afterScreenshotPath (クロップ after) を before として使用。
+        prev_change_after = None
+        try:
+            from db import get_latest_change_screenshot
+            prev_change_after = get_latest_change_screenshot(page_id)
+        except Exception:
+            pass
+        before_screenshot_path = prev_change_after
 
         # 8.5 Generate visual diff + cropped before/after images
         # generate_visual_diff() returns VisualDiffResult when structural changes are clear,
@@ -338,7 +346,7 @@ async def scan_page(page_info: dict) -> dict:
                         if visual_diff_path:
                             print(f"    Visual diff generated ({len(diff_result_obj.regions)} regions, crops: before={before_crop_path is not None}, after={after_crop_path is not None})")
                     else:
-                        print(f"    Visual diff skipped: {diff_result_obj.reason}")
+                        print(f"    Visual diff skipped (filter not passed)")
             except Exception as e:
                 print(f"    Visual diff generation failed: {e}")
 

@@ -306,3 +306,29 @@ def is_duplicate_change(page_id: str, diff_text: str) -> bool:
             return False
     finally:
         release_connection(conn)
+
+
+def get_latest_change_screenshot(page_id: str) -> Optional[str]:
+    """Return the afterScreenshotPath from the most recent Change for this page.
+
+    Used as the 'before' image source for visual diff generation after the
+    full-page screenshot upload was removed to reduce Blob Storage usage.
+    The previous change's 'after' crop becomes the current change's 'before'.
+
+    Returns None if no previous change with an afterScreenshotPath exists.
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT "afterScreenshotPath"
+                FROM "Change"
+                WHERE "pageId" = %s
+                  AND "afterScreenshotPath" IS NOT NULL
+                ORDER BY "detectedAt" DESC
+                LIMIT 1
+            """, (page_id,))
+            row = cur.fetchone()
+            return row[0] if row else None
+    finally:
+        release_connection(conn)
