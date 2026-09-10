@@ -208,6 +208,16 @@ EXCLUDE_SELECTORS = [
     '[class*="js-pcLink"]',   # more specific variant; [class*="js-pc"] already covers it
 
     # ───────────────────────────────────────────
+    # Calendar day buttons (Airbnb, booking.com) — content rotates daily.
+    # Each calendar cell has a data-state--date-string attribute with the ISO date,
+    # and aria-label text with "今日" / "過去の日付" markers that shift every scan.
+    # Excluding these cells prevents daily phantom diffs from the calendar widget.
+    # The calendar container element itself is NOT excluded, so adding/removing the
+    # calendar widget entirely is still detectable.
+    # ───────────────────────────────────────────
+    '[data-state--date-string]',
+
+    # ───────────────────────────────────────────
     # SUUMO floating UI sections that depend on SPA rendering timing.
     # #js-mylist is a "my list" floating panel that SSR may or may not include
     # depending on login state / rendering order — not a structural UI signal.
@@ -280,6 +290,9 @@ _DYNAMIC_META_NAMES = frozenset([
     'request-id',
     'x-request-id',
     'trace-id',
+    # booking.com: per-request signed token (changes every fetch)
+    # e.g. <meta name="booking-verification" content="fPJLI7Hobnz...">
+    'booking-verification',
 ])
 
 # Pattern to normalize property IDs embedded in URLs
@@ -341,6 +354,16 @@ _RECOMMEND_SECTION_PATTERNS = re.compile(
 
 # Normalization version marker — bumped each time extract_structure logic changes.
 # main.py uses this to detect old snapshots and skip comparison (baseline_reset).
+# V12 changes vs V11:
+#   - _DYNAMIC_META_NAMES: added 'booking-verification' (booking.com per-request
+#     signed token that rotates every fetch, causing phantom line diffs).
+#   - meta[name="twitter:description"] → [META_DESCRIPTION]
+#     Airbnb embeds a daily-date prefix "2026年9月10日 - 東京23区..." producing daily diffs.
+#   - dynamic_attrs_to_remove: added 'data-aui-build-date' (Amazon AUI deploy version)
+#     and 'data-state--date-string' (Airbnb calendar button ISO date attribute).
+#   - _normalize_tag_attrs: link[rel=apple-touch-icon/mask-icon/shortcut icon] href
+#     → [ICON_URL]: Airbnb SPA double-renders these <link> tags; normalizing href
+#     makes duplicate sets structurally identical, suppressing phantom diffs.
 # V11 changes vs V10:
 #   - EXCLUDE_SELECTORS: #js-mylist / [id^="js-my"] — SUUMO floating "my list"
 #     panel whose SSR presence toggles by login state, causing phantom diffs.
@@ -398,7 +421,7 @@ _RECOMMEND_SECTION_PATTERNS = re.compile(
 #   - meta[name="description"] / og:description content → [META_DESCRIPTION]
 #   - meta[name="keywords"] content → [META_KEYWORDS]
 #   - .searchitem-list-value (SUUMO station counts) → removed from DOM
-NORM_VERSION_MARKER = "<!-- NORM_V11 -->"
+NORM_VERSION_MARKER = "<!-- NORM_V12 -->"
 
 
 def _normalize_asset_url(tag: Tag, val: str) -> str:
@@ -426,6 +449,52 @@ def _normalize_asset_url(tag: Tag, val: str) -> str:
     result = _PROPERTY_UUID_IN_URL.sub(r'\1[PROP_UUID]', result)
 
     return result
+
+
+# Calendar date pattern in aria-label attributes.
+# Matches ISO-style and Japanese date strings found on Airbnb / booking.com calendar buttons.
+# e.g.  "2026年9月10日（Thursday）、今日。予約可能です。"
+#        "9, Wednesday, September 2026. 過去の日付は選択できません。"
+_CALENDAR_DATE_RE = re.compile(
+    r'(?:20\d{2}年\d{1,2}月\d{1,2}日|'      # 2026年9月10日
+    r'\d{1,2},\s*\w+day,\s*\w+\s*20\d{2})',  # 9, Wednesday, September 2026
+    re.IGNORECASE,
+)
+
+
+def _dedup_icon_links(soup: BeautifulSoup) -> None:
+    """Remove duplicate apple-touch-icon / mask-icon / shortcut icon <link> tags.
+
+    After href normalization to [ICON_URL], structurally identical tags are kept
+    once per (rel, sizes) pair.  Extra copies are decomposed.
+    """
+    seen: set[tuple] = set()
+    for tag in soup.find_all('link'):
+        rel_values = tag.get('rel', [])
+        rel_str = ' '.join(rel_values) if isinstance(rel_values, list) else str(rel_values)
+        if not any(r in rel_str for r in ('apple-touch-icon', 'mask-icon', 'shortcut icon')):
+            continue
+        key = (rel_str, tag.get('sizes', ''), tag.get('href', ''))
+        if key in seen:
+            tag.decompose()
+        else:
+            seen.add(key)
+
+
+def _normalize_calendar_aria_labels(soup: BeautifulSoup) -> None:
+    """Normalize date strings in aria-label attributes of calendar day buttons.
+
+    Airbnb / booking.com calendar buttons carry aria-label values like
+    "2026年9月10日（Thursday）、今日。予約可能です。" that change every day.
+    We replace the date portion with [CALENDAR_DATE] to prevent daily phantom diffs
+    while preserving the rest of the label (availability status, etc.).
+    """
+    for tag in soup.find_all(attrs={'aria-label': True}):
+        label = tag.get('aria-label', '')
+        if not label or not isinstance(label, str):
+            continue
+        if _CALENDAR_DATE_RE.search(label):
+            tag['aria-label'] = _CALENDAR_DATE_RE.sub('[CALENDAR_DATE]', label)
 
 
 def extract_structure(html: str, exclude_selectors: Optional[list] = None) -> str:
@@ -456,6 +525,21 @@ def extract_structure(html: str, exclude_selectors: Optional[list] = None) -> st
     for tag in soup.find_all(True):  # All tags
         _normalize_tag_attrs(tag)
 
+    # Deduplicate apple-touch-icon / mask-icon link tags.
+    # Airbnb and some Next.js apps render the same <link rel="apple-touch-icon">
+    # set twice (once from a static <head> template, once from the SPA head manager).
+    # After href normalization to [ICON_URL] the tags are structurally identical; we
+    # keep only the first occurrence of each (rel, sizes) pair to prevent count-based
+    # phantom diffs when the duplicate set appears or disappears run-to-run.
+    _dedup_icon_links(soup)
+
+    # Normalize aria-label values on calendar day buttons to suppress date-specific
+    # labels that change every day (e.g. Airbnb "2026年9月10日（Thursday）、今日").
+    # We keep the aria-label attribute to preserve accessibility signal in the diff,
+    # but replace the date portion so that only structural changes to the calendar UI
+    # (e.g. removal of the calendar widget entirely) are recorded.
+    _normalize_calendar_aria_labels(soup)
+
     # Normalize meta tag content
     for meta in soup.find_all('meta'):
         content = meta.get('content', '')
@@ -474,7 +558,8 @@ def extract_structure(html: str, exclude_selectors: Optional[list] = None) -> st
         # description / og:description contain property-specific text (room names,
         # addresses, area info) that changes whenever the monitored URL rotates to a
         # new listing.  Replace entirely to avoid spurious daily diffs.
-        if meta_name in ('description', 'og:description') or meta_prop in ('og:description',):
+        # twitter:description carries the same text (e.g. Airbnb daily-date prefix).
+        if meta_name in ('description', 'og:description', 'twitter:description') or meta_prop in ('og:description',):
             meta['content'] = '[META_DESCRIPTION]'
             continue
 
@@ -647,6 +732,11 @@ def _normalize_tag_attrs(tag: Tag) -> None:
         'data-tracking-id', 'data-session', 'data-csrf', 'data-nonce',
         'data-request-id', 'data-impression-id', 'data-ab-test',
         'data-gtm-vis-*',
+        # Amazon: AUI build date rotates on every deploy (e.g. data-aui-build-date="3.26.7-2026-09-08")
+        'data-aui-build-date',
+        # Airbnb: calendar date-string embedded in button attributes (changes daily)
+        # e.g. data-state--date-string="2026-09-09" on each calendar day button
+        'data-state--date-string',
     ]
     attrs_to_remove = []
     for attr_name in list(tag.attrs.keys()):
@@ -698,6 +788,13 @@ def _normalize_tag_attrs(tag: Tag) -> None:
             # Keep the tag structure but normalize the href
             if 'href' in tag.attrs:
                 tag['href'] = '[PRELOAD_URL]'
+        # apple-touch-icon / mask-icon / shortcut icon links appear twice in some
+        # SPA frameworks (Airbnb, Next.js) due to <head> manager rendering the same
+        # tags in two passes. Their href is already hash-normalized; removing the
+        # href entirely suppresses count-based phantom diffs when the count fluctuates.
+        if any(r in rel_str for r in ['apple-touch-icon', 'mask-icon', 'shortcut icon']):
+            if 'href' in tag.attrs:
+                tag['href'] = '[ICON_URL]'
 
 
 def compute_diff(old_structure: str, new_structure: str) -> Optional[dict]:
